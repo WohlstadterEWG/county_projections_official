@@ -19,6 +19,8 @@
 # Conversions
 #
 # Notes
+#	- Any SQLite command that performs spatial operations will require the SpatiaLite extension.  This extension is loaded
+#	per connection with the statement "SELECT LOAD_EXTENSION('mod_spatialite');".
 #
 # Assumptions
 # 
@@ -27,6 +29,11 @@
 #	E. Hauer
 #
 # TODO
+#	- Review the use of pacman to manage packages. The library hasn't been updated in a while and it is really just sugar.
+#	- Research if there is a dbi command to execute multiple SQL statements.
+#	- Correct wrap the clusters.  Currently warnings are generated because clusters are initialized here and left hanging.
+#	That's not good programming practice.  Any unit of work that uses clusters should start the cluster, perform the work,
+#	then close the cluster with parallel::stopCluster.
 #
 ###############################################################################
 
@@ -45,7 +52,7 @@ options(java.parameters = "-Xmx1000m") # Increase Java Heap Size
 options(dplyr.summarise.inform = FALSE)
 
 
-#Functions, Libraries, & Parallel Computing 
+# Functions, Libraries, & Parallel Computing 
 ## Functions 
 # Specify Number of Digits (Forward)
 numb_digits_F <- function(x, y) {
@@ -97,12 +104,12 @@ pkgs <- c(
 	"IDPmisc",        # Quality na.rm
 	"tidycensus",     # Census Data
 	'here',
-	'properties'
+	'properties',
+	'RSQLite'
 )
 
 # Install missing packages
 # Will only run if at least one package is missing
-
 if(!sum(!p_isinstalled(pkgs)) == 0) {
 	p_install(
 		package = pkgs[!p_isinstalled(pkgs)], 
@@ -114,18 +121,6 @@ if(!sum(!p_isinstalled(pkgs)) == 0) {
 p_load(pkgs, character.only = TRUE)
 rm(pkgs)
 
-## Parallel Computing 
-# Establish Parallel Computing Cluster
-clusters <- makeCluster(detectCores() - 1) # Create Cluster with Specified Number of Cores
-registerDoParallel(clusters) # Register Cluster
-
-# Parallel Computing Details
-getDoParWorkers() # Determine Number of Utilized Clusters
-getDoParName() #  Name of the Currently Registered Parallel Computing Backend
-getDoParVersion() #  Version of the Currently Registered Parallel Computing Backend
-
-
-
 # Operating System Specific Settings
 system <- Sys.info()
 
@@ -133,17 +128,33 @@ if (system['sysname'] == 'Darwin' || system['sysname'] == 'Windows') {
 	username <- unname(system['user'])
 	if (system['sysname'] == 'Windows') {
 		delimiter_path <- '\\'
+		
+		# Parallel computing is not directly supported under Windows.
 		cores <- 1
 	} else {
 		delimiter_path <- '/'
+		
 		cores <- detectCores() - 1
 	}
 } else {
 	# Assumed to be either Linux or Unix.
 	username <- Sys.getenv('LOGNAME')
 	delimiter_path <- '/'
+	
 	cores <- detectCores() - 1
 }
+
+
+## Parallel Computing 
+# Establish Parallel Computing Cluster
+clusters <- makeCluster(cores) # Create Cluster with Specified Number of Cores
+registerDoParallel(clusters) # Register Cluster
+
+# Parallel Computing Details
+getDoParWorkers() # Determine Number of Utilized Clusters
+getDoParName() #  Name of the Currently Registered Parallel Computing Backend
+getDoParVersion() #  Version of the Currently Registered Parallel Computing Backend
+
 
 
 # Files Accessed
@@ -169,10 +180,38 @@ key <- properties$api.key.census
 # Processing Settings
 workspace_crs <- constants$workspace_crs
 
-# setting the global arima model
+# Setting the global arima model
 arima_order <- c(
 		as.numeric(constants$arima_model_ar_terms),
 		as.numeric(constants$arima_model_differencing),
 		as.numeric(constants$arima_model_ma_terms)
 )
 arma <- constants$arma
+
+
+
+# Persistent Storage (any SQL database will work)
+connection <- dbConnect(
+		RSQLite::SQLite(),
+		dbname = paste(configuration$path_database, configuration$database_file, sep = delimiter_path),
+		synchronous = 'normal'
+)
+
+# Performance Tuning (also the synchronous setting in the connect)
+dbExecute(connection, 'PRAGMA journal_mode = WAL;')
+dbExecute(connection, 'PRAGMA temp_store = memory;')
+dbExecute(connection, 'PRAGMA mmap_size = 30000000000;')
+
+# For Spatial Operations
+#dbExecute(connection, "SELECT LOAD_EXTENSION('mod_spatialite');")
+
+
+
+# Fails on Windows
+#install.packages('devtools')
+#library(devtools)
+#install_github('pschmied/RSQLite.spatialite')
+
+
+# Poor design as the asymetric coding conceals code and is fragile.
+#dbDisconnect(connection)

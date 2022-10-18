@@ -51,6 +51,25 @@
 # ogr2ogr -f "PostgreSQL" PG:"dbname=my_database user=postgres" "source_data.json" -nln destination_table -append
 
 
+
+# Production Entities
+psql -h localhost -d csm -U $PGUSERNAME -w <<EOF
+DROP TABLE IF EXISTS "county__raw";
+CREATE TABLE "county__raw" (
+	"state_abbreviation" CHARACTER(2) NOT NULL,
+	"state_fips" CHARACTER(2) NOT NULL,
+	"county_fips" CHARACTER(3) NOT NULL,
+	"county_name" VARYING CHARACTER(100) NOT NULL,
+	"ansi_class" CHARACTER(2) NOT NULL,
+);,
+\copy county__raw FROM 'national_county.txt' CSV HEADER;
+EOF
+
+
+
+
+
+# Prototyping and Validation Entities
 # Population Data
 # CDC 1969-2020
 psql -h localhost -d csm -U $PGUSERNAME -w <<EOF
@@ -65,8 +84,20 @@ CREATE TABLE "population__cdc_1969_2020__raw" (
 	"POPULATION" INTEGER,
 	"GEOID" CHARACTER(5) NOT NULL,
 	"COUNTYRACE" CHARACTER(7) NOT NULL
-);\copy population__cdc_1969_2020__raw FROM 'cdc_1969_2020.csv' CSV HEADER;
+);,
+\copy population__cdc_1969_2020__raw FROM 'cdc_1969_2020.csv' CSV HEADER;
 EOF
+
+
+# Raw
+psql -h localhost -d csm -U $PGUSERNAME -w <<EOF
+DROP TABLE IF EXISTS "population__cdc_1969_2020__raw";
+CREATE TABLE "population__cdc_1969_2020__raw" (
+	"raw" CHARACTER(30) NOT NULL
+);
+\copy population__cdc_1969_2020__raw FROM 'us.1969_2020.19ages.adjusted.txt';
+EOF
+
 
 
 # CDC 1990-2020
@@ -83,6 +114,16 @@ CREATE TABLE "population__cdc_1990_2020__raw" (
 	"GEOID" CHARACTER(5) NOT NULL,
 	"COUNTYRACE" CHARACTER(7) NOT NULL
 );\copy population__cdc_1990_2020__raw FROM 'cdc_1990_2020.csv' CSV HEADER;
+EOF
+
+
+# Raw
+psql -h localhost -d csm -U $PGUSERNAME -w <<EOF
+DROP TABLE IF EXISTS "population__cdc_1990_2020__raw";
+CREATE TABLE "population__cdc_1990_2020__raw" (
+	"raw" CHARACTER(30) NOT NULL
+);
+\copy population__cdc_1990_2020__raw FROM 'us.1990_2020.19ages.adjusted.txt';
 EOF
 
 
@@ -455,30 +496,13 @@ EOF
 
 
 # Census SF1 Processed Data
-# Group Quarters 2000 Intermediate
-psql -h localhost -d csm -U $PGUSERNAME -w <<EOF
-DROP TABLE IF EXISTS "population__census_2000_gq__raw";
-CREATE TABLE "population__census_2000_gq__raw" (
-	"SEX" CHARACTER(6) NOT NULL,
-	"RACE" CHARACTER VARYING(15) NOT NULL,
-	"AGEGRP" INTEGER NOT NULL,
-	"GQ" INTEGER,
-	"YEAR" CHARACTER(4) NOT NULL,
-	"STATE" CHARACTER(2) NOT NULL,
-	"COUNTY" CHARACTER(3) NOT NULL
-);
-\copy population__census_2000_gq__raw FROM 'population_2000_gq_17.csv' CSV HEADER NULL 'NA';
-\copy population__census_2000_gq__raw FROM 'population_2000_gq_29.csv' CSV HEADER NULL 'NA';
-EOF
-
-
 # Group Quarters 2000 Final
 psql -h localhost -d csm -U $PGUSERNAME -w <<EOF
 DROP TABLE IF EXISTS "population__census_2000_gq__raw";
 CREATE TABLE "population__census_2000_gq__raw" (
 	"gender" CHARACTER(10) NOT NULL,
 	"race" CHARACTER(15) NOT NULL,
-	"age_group" CHARACTER(2) NOT NULL,
+	"age_bracket" CHARACTER(2) NOT NULL,
 	"population" INTEGER NOT NULL,
 	"year" CHARACTER(4) NOT NULL,
 	"state_fips" CHARACTER(2) NOT NULL,
@@ -497,7 +521,7 @@ CREATE TABLE "population__census_2010_gq__raw" (
 	"state_fips" CHARACTER(2) NOT NULL,
 	"county_fips" CHARACTER(3) NOT NULL,
 	"gender" CHARACTER(6) NOT NULL,
-	"age_group" CHARACTER(2) NOT NULL
+	"age_bracket" CHARACTER(2) NOT NULL
 );\copy population__census_2010_gq__raw FROM 'gq_2010.csv' CSV HEADER;
 EOF
 
@@ -656,48 +680,108 @@ EOF
 
 
 
-# SSP
-# SEX,AGE,YEAR,SSP1,SSP2,SSP3,SSP4,SSP5
+# Troubleshooting Projection Generation
 psql -h localhost -d csm -U $PGUSERNAME -w <<EOF
-DROP TABLE IF EXISTS "ssp__01_prepared__raw";
-CREATE TABLE "ssp__01_prepared__raw" (
-	"gender" CHARACTER(1) NOT NULL,
-	"age_group" CHARACTER(2) NOT NULL,
+DROP TABLE IF EXISTS "population__projection";
+CREATE TABLE "population__projection" (
 	"year" CHARACTER(4) NOT NULL,
-	"ssp1" FLOAT,
-	"ssp2" FLOAT,
-	"ssp3" FLOAT,
-	"ssp4" FLOAT,
-	"ssp5" FLOAT
+	"geoid" CHARACTER(5) NOT NULL,
+	"gender" CHARACTER(1) NOT NULL,
+	"race" CHARACTER(1) NOT NULL,
+	"age_bracket" CHARACTER(2) NOT NULL,
+	"population" FLOAT NOT NULL
 );
-\copy ssp__01_prepared__raw FROM 'SSP_01_prepared.csv' CSV HEADER NULL 'NA';
+\copy population__projection FROM 'Projection_combined.csv' CSV HEADER;
 EOF
-
-
-
-
-
 
 
 psql -h localhost -d csm -U $PGUSERNAME -w <<EOF
-DROP TABLE IF EXISTS "population__z3__raw";
-CREATE TABLE "population__z3__raw" (
-	"Var1" CHARACTER(3) NOT NULL,
-	"YEAR" CHARACTER(4) NOT NULL,
-	"SEX" CHARACTER(6) NOT NULL,
-	"COUNTYRACE" CHARACTER(7) NOT NULL,
-	"TYPE" CHARACTER(10) NOT NULL,
-	"AGE" INTEGER NOT NULL,
-	"A" FLOAT,
-	"B" FLOAT,
-	"C" FLOAT,
-	"STATE" CHARACTER(2) NOT NULL,
-	"COUNTY" CHARACTER(3) NOT NULL,
-	"GEOID" CHARACTER(5) NOT NULL,
-	"RACE" CHARACTER(15) NOT NULL,
-	"NAME" CHARACTER VARYING(100) NOT NULL,
-	"state" CHARACTER(2) NOT NULL
-);\copy population__z3__raw FROM 'Population_z3.csv' CSV HEADER;
+DROP TABLE IF EXISTS "population__projection_preprocess";
+CREATE TABLE "population__projection_preprocess" (
+	"year" CHARACTER(4) NOT NULL,
+	"geoid" CHARACTER(5) NOT NULL,
+	"gender" CHARACTER(1) NOT NULL,
+	"race" CHARACTER(1) NOT NULL,
+	"age_bracket" CHARACTER(2) NOT NULL,
+	"population_additive" FLOAT NOT NULL,
+	"population_multiplicative" FLOAT NOT NULL,
+	"year_check" CHARACTER(4) NOT NULL,
+	"population_check" FLOAT NOT NULL,
+	"type" CHARACTER(15) NOT NULL
+);
+\copy population__projection_preprocess FROM 'Projection_preprocess.csv' CSV HEADER;
 EOF
 
 
+psql -h localhost -d csm -U $PGUSERNAME -w <<EOF
+DROP TABLE IF EXISTS "population__projection_add";
+CREATE TABLE "population__projection_add" (
+	"year" CHARACTER(4) NOT NULL,
+	"geoid" CHARACTER(5) NOT NULL,
+	"gender" CHARACTER(1) NOT NULL,
+	"race" CHARACTER(1) NOT NULL,
+	"age_bracket" CHARACTER(2) NOT NULL,
+	"population" FLOAT NOT NULL
+);
+\copy population__projection_add FROM 'Projection_additive.csv' CSV HEADER;
+EOF
+
+
+psql -h localhost -d csm -U $PGUSERNAME -w <<EOF
+DROP TABLE IF EXISTS "population__projection_mult";
+CREATE TABLE "population__projection_mult" (
+	"year" CHARACTER(4) NOT NULL,
+	"geoid" CHARACTER(5) NOT NULL,
+	"gender" CHARACTER(1) NOT NULL,
+	"race" CHARACTER(1) NOT NULL,
+	"age_bracket" CHARACTER(2) NOT NULL,
+	"population" FLOAT NOT NULL
+);
+\copy population__projection_mult FROM 'Projection_multiplicative.csv' CSV HEADER;
+EOF
+
+
+
+
+
+# Final Projections
+psql -h localhost -d csm -U $PGUSERNAME -w <<EOF
+DROP TABLE IF EXISTS "projection__cross_ssp";
+CREATE TABLE "projection__cross_ssp" (
+	"year" CHARACTER(4) NOT NULL,
+	"geoid" CHARACTER(5) NOT NULL,
+	"gender" CHARACTER(1) NOT NULL,
+	"race" CHARACTER(1) NOT NULL,
+	"age_bracket" CHARACTER(2) NOT NULL,
+	"population_ssp1" FLOAT NOT NULL,
+	"population_ssp2" FLOAT NOT NULL,
+	"population_ssp3" FLOAT NOT NULL,
+	"population_ssp4" FLOAT NOT NULL,
+	"population_ssp5" FLOAT NOT NULL
+);
+\copy projection__cross_ssp FROM 'SSP_asrc.csv' CSV HEADER;
+EOF
+
+
+
+# Comparison with Hauer
+# YEAR	SEX	STATE	COUNTY	GEOID	RACE	AGE	SSP1	SSP2	SSP3	SSP4	SSP5
+psql -h localhost -d csm -U $PGUSERNAME -w <<EOF
+DROP TABLE IF EXISTS "hauer__cross_ssp";
+CREATE TABLE "hauer__cross_ssp" (
+	"year" CHARACTER(4) NOT NULL,
+	"gender" CHARACTER(1) NOT NULL,
+	"state_fips" CHARACTER(2) NOT NULL,
+	"county_fips" CHARACTER(3) NOT NULL,
+	"geoid" CHARACTER(5) NOT NULL,
+	"race" CHARACTER(1) NOT NULL,
+	"age_bracket" CHARACTER(2) NOT NULL,
+	"population_ssp1" FLOAT NOT NULL,
+	"population_ssp2" FLOAT NOT NULL,
+	"population_ssp3" FLOAT NOT NULL,
+	"population_ssp4" FLOAT NOT NULL,
+	"population_ssp5" FLOAT NOT NULL
+);
+\copy hauer__cross_ssp FROM 'IL.csv' CSV HEADER;
+\copy hauer__cross_ssp FROM 'MO.csv' CSV HEADER;
+EOF

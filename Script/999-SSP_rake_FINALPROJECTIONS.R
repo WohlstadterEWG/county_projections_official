@@ -17,7 +17,6 @@
 # Dependencies
 #	- 000-Libraries.R
 #	- 001-fipscodes.R 
-#	- 002-basedataload.R	- Maybe.  It is not referenced in the original Hauer code, but the data frame is referenced below
 #	- 003-proj_basedataloa.R
 #
 # Conversions
@@ -38,184 +37,44 @@
 
 
 source('./Script/000-Libraries.R')      # loading in the libraries
-source('./Script/001-fipscodes.R')      # Getting a Fips List
-# 002 is not called in original 999 script.  However K05_launch2 is referenced below.  That data table is created in 002.
-source('./Script/002-basedataload.R')   # loading the base data
-source('./Script/003-proj_basedataload.R')   # loading the base data
 
 
-K05_launch <- K05_pop[which(K05_pop$YEAR == launch_year),] %>%
-		group_by(STATE, COUNTY, GEOID, YEAR, RACE, SEX) %>%
-		dplyr::summarise(POPULATION = sum(POPULATION)) %>%
-		ungroup()
-
-# CDC Population Estimates 2020
-write_csv(K05_launch, paste(path_data, 'Processed', 'Population_00_K05_launch.csv', sep = delimiter_path))
-
-
-files <- paste(
-		path_data,
-		'Projections',
-		'Proj',
-		list.files(path = paste(path_data, 'Projections', 'Proj', sep = delimiter_path), pattern = '.csv'),
-		sep = delimiter_path
-)
-
-# Generated Population Projections (CCD additive / CCR multiplicative) 2025 to 2100 in 5 year increments
-z <- rbindlist(lapply(as.list(files), fread)) %>%
-		mutate(
-				STATE = substr(COUNTYRACE, 1, 2),
-				COUNTY = substr(COUNTYRACE, 3, 5),
-				GEOID = paste0(STATE, COUNTY),
-				A = as.numeric(A),
-				B = as.numeric(B),
-				C = as.numeric(C),
-				A = if_else(A < 0, 0, A),
-				B = if_else(B < 0, 0, B),
-				C = if_else(C < 0, 0, C),
-				RACE = substr(COUNTYRACE, 7, 7)
-		)
-
-
-write_csv(z, paste(path_data, 'Processed', 'Population_01_z.csv', sep = delimiter_path))
-
-
-z[is.na(z)] <- 0
-
-# CDC Population Estimates 2020 (only contains 2020, why filter?)
-basesum <- K05_launch[which(K05_launch$YEAR == launch_year),] %>%
-		dplyr::select(STATE, COUNTY, GEOID, POPULATION, RACE)
-
-write_csv(basesum, paste(path_data, 'Processed', 'Population_02_basesum.csv', sep = delimiter_path))
-
-# Generated Population Projections (CCD only) 2100
-addsum <- z[which(z$TYPE == "ADD" & z$YEAR == (launch_year + FORLEN)),] %>%
-		group_by(STATE, COUNTY, GEOID, RACE, TYPE) %>%
-		dplyr::summarise(A = sum(A))
-
-write_csv(addsum, paste(path_data, 'Processed', 'Population_03_addsum.csv', sep = delimiter_path))
-
-
-
-# This logic is broken
-
-
-# CDC Population Estimates 2020 Compared to Generated Population Projections 2100
-# See page 3 in article, paragraph 2 of "Cohort Change Differences" beginning "CCDs are just as parsimonious".
-# "A" is projection, "POPULATION" is estimate
-addmult <- left_join(addsum, basesum) %>%
-		mutate(COMBINED = if_else(A >= POPULATION, "ADD", "Mult")) %>%
-		dplyr::select(STATE, COUNTY, GEOID, RACE, COMBINED)
-
-write_csv(addmult, paste(path_data, 'Processed', 'Population_04_addmult.csv', sep = delimiter_path))
-
-
-# Never used.  What other variables are set in other scripts that are never used in those scripts but are used here?
-# For example, K05_launch2 is used here but not defined here.  Is it an artifact that was part of Hauer's environment?
-#basesum2 <- K05_launch[which(K05_launch$YEAR == launch_year),] %>%
-#		dplyr::select(STATE, COUNTY, GEOID, POPULATION, RACE) %>%
-#		group_by(GEOID, RACE) %>%
-#		dplyr::summarise(poptot = sum(POPULATION))
-
-
-
-combined <- left_join(z, addmult) %>%
-		filter(TYPE == COMBINED) %>%
-		mutate(TYPE = "ADDMULT") %>%
-		dplyr::select(-COMBINED)
-
-write_csv(combined, paste(path_data, 'Processed', 'Population_05_combined.csv', sep = delimiter_path))
-
-z2 <- rbind(z, combined) # %>%
-
-write_csv(z2, paste(path_data, 'Processed', 'Population_06_z2.csv', sep = delimiter_path))
-
-# Where does K05_launch2 come from?  The 002-basedataload script defines it, but 002-basedataload is not referenced in
-# the original script.
-K05_launch2$SEX = as.integer(K05_launch2$SEX)
-
-z2 <- left_join(as.data.frame(z2), as.data.frame(K05_launch2))
-
-write_csv(z2, paste(path_data, 'Processed', 'Population_07_z2.csv', sep = delimiter_path))
-
-z2 <- left_join(z2, countynames)
-
-write_csv(z2, paste(path_data, 'Processed', 'Population_08_z2.csv', sep = delimiter_path))
-
-z2[is.na(z2)] <- 0
-z2 <- filter(
-		z2,
-		!GEOID %in% c("02900", "04910", "15900", "35910", "36910", "51910", "51911", "51911", "51913", "51914", "51915", "51916", "51918")
-)
-
-
-z3 <- filter(z2, TYPE == "ADDMULT")
-
-write_csv(z3, paste(path_data, 'Processed', 'Population_09_z3.csv', sep = delimiter_path))
-
-	 
-totals <- z3 %>%
-		group_by(AGE, SEX, YEAR) %>%
-		dplyr::summarise(poptot = sum(A))
-
-write_csv(totals, paste(path_data, 'Processed', 'Population_10_totals.csv', sep = delimiter_path))
-
-
-# This is the percent population of the total analysis area.  In Hauer, that is the United States.  However, this only
-# includes the EWG region.
-totals2 <- left_join(z3, totals) %>%
-		mutate(percentage = (A / poptot))
-
-
-
-write_csv(totals2, paste(path_data, 'Processed', 'Population_11_totals2.csv', sep = delimiter_path))
-
-#unzip(
-#		zipfile = paste(path_data, 'SspDb_country_data_2013-06-12.csv.zip', sep = delimiter_path),
-#		exdir = path_data
-#)
-
-#asc <- function(x) { strtoi(charToRaw(x), 16L) }
-
-#chr <- function(n) { rawToChar(as.raw(n)) }
-
-
-SSPs <- read_csv(paste(path_data, 'SspDb_country_data_2013-06-12.csv', sep = delimiter_path),) %>%
-		filter(REGION == "USA", grepl("Population", VARIABLE)) %>%
-		separate(VARIABLE, c("VARIABLE", "VARIABLE1", "VARIABLE2", "VARIABLE3", "VARIABLE4"), sep = '\\|')
-
-
-SSPs2 <- SSPs %>%
+if (!dbExistsTable(connection, 'population__model__projection')) {
+	pathways <- read_csv(paste(path_data, 'SspDb_country_data_2013-06-12.csv', sep = delimiter_path),) %>%
+			filter(REGION == "USA", grepl("Population", VARIABLE)) %>%
+			separate(VARIABLE, c("VARIABLE", "VARIABLE1", "VARIABLE2", "VARIABLE3", "VARIABLE4"), sep = '\\|')
+	
+	pathways <- pathways %>%
 		dplyr::select(-`1950`:-`2010`, -`2105`:-`2150`) %>%
 		mutate(
-				SEX = case_when(
-						VARIABLE1 == "Female" ~ 2,
-						VARIABLE1 == "Male" ~ 1
+				gender = case_when(
+						VARIABLE1 == "Female" ~ '2',
+						VARIABLE1 == "Male" ~ '1'
 				),
-				AGE = case_when(
-						grepl('^Aged0', VARIABLE2) ~ 1,
-						grepl('^Aged5', VARIABLE2) ~ 2,
-						grepl('^Aged10', VARIABLE2) ~ 3,
-						grepl('^Aged15', VARIABLE2) ~ 4,
-						grepl('^Aged20', VARIABLE2) ~ 5,
-						grepl('^Aged25', VARIABLE2) ~ 6,
-						grepl('^Aged30', VARIABLE2) ~ 7,
-						grepl('^Aged35', VARIABLE2) ~ 8,
-						grepl('^Aged40', VARIABLE2) ~ 9,
-						grepl('^Aged45', VARIABLE2) ~ 10,
-						grepl('^Aged50', VARIABLE2) ~ 11,
-						grepl('^Aged55', VARIABLE2) ~ 12,
-						grepl('^Aged60', VARIABLE2) ~ 13,
-						grepl('^Aged65', VARIABLE2) ~ 14,
-						grepl('^Aged70', VARIABLE2) ~ 15,
-						grepl('^Aged75', VARIABLE2) ~ 16,
-						grepl('^Aged80', VARIABLE2) ~ 17,
-						grepl('^Aged85', VARIABLE2) ~ 18,
-						grepl('^Aged90', VARIABLE2) ~ 18,
-						grepl('^Aged95', VARIABLE2) ~ 18,
-						grepl('^Aged100', VARIABLE2) ~ 18
+				age_bracket = case_when(
+						VARIABLE2 == 'Aged0-4' ~ '01',
+						VARIABLE2 == 'Aged5-9' ~ '02',
+						VARIABLE2 == 'Aged10-14' ~ '03',
+						VARIABLE2 == 'Aged15-19' ~ '04',
+						VARIABLE2 == 'Aged20-24' ~ '05',
+						VARIABLE2 == 'Aged25-29' ~ '06',
+						VARIABLE2 == 'Aged30-34' ~ '07',
+						VARIABLE2 == 'Aged35-39' ~ '08',
+						VARIABLE2 == 'Aged40-44' ~ '09',
+						VARIABLE2 == 'Aged45-49' ~ '10',
+						VARIABLE2 == 'Aged50-54' ~ '11',
+						VARIABLE2 == 'Aged55-59' ~ '12',
+						VARIABLE2 == 'Aged60-64' ~ '13',
+						VARIABLE2 == 'Aged65-69' ~ '14',
+						VARIABLE2 == 'Aged70-74' ~ '15',
+						VARIABLE2 == 'Aged75-79' ~ '16',
+						VARIABLE2 == 'Aged80-84' ~ '17',
+						VARIABLE2 == 'Aged85-89' ~ '18',
+						VARIABLE2 == 'Aged90-94' ~ '18',
+						VARIABLE2 == 'Aged95-99' ~ '18',
+						VARIABLE2 == 'Aged100+' ~ '18'
 				),
-				SSP = case_when(
+				scenario = case_when(
 						grepl("SSP1", SCENARIO) ~ "SSP1",
 						grepl("SSP2", SCENARIO) ~ "SSP2",
 						grepl("SSP3", SCENARIO) ~ "SSP3",
@@ -226,117 +85,210 @@ SSPs2 <- SSPs %>%
 		filter(is.na(VARIABLE4), !is.na(VARIABLE3), !is.na(VARIABLE2)) %>%
 		dplyr::select(-MODEL:-UNIT) %>%
 		na.omit %>%
-		gather(YEAR, Population, `2015`:`2100`) %>%
-		group_by(SEX, AGE, SSP, YEAR) %>%
-		dplyr::summarise(Population = sum(Population)) %>%
-		ungroup() %>%
-		spread(SSP, Population) %>%
-		mutate(YEAR = as.integer(YEAR))
-
-write_csv(SSPs2, paste(path_data, 'Processed', 'SSP_01_prepared.csv', sep = delimiter_path))
-
-
-# Rates
-SSP_baseline <- SSPs2 %>%
-		filter(YEAR == 2020) %>%
-		dplyr::rename(
-				SSP1_baseline = SSP1,
-				SSP2_baseline = SSP2,
-				SSP3_baseline = SSP3,
-				SSP4_baseline = SSP4,
-				SSP5_baseline = SSP5
-		) %>%
-		select(SEX, AGE, SSP1_baseline:SSP5_baseline)
-
-write_csv(SSP_baseline, paste(path_data, 'Processed', 'SSP_02_baseline.csv', sep = delimiter_path))
-
-
-SSP_rates <- left_join(SSPs2, SSP_baseline) %>%
-#		arrange(SEX, AGE, YEAR) %>%		# Only for use with lag()
-		mutate(
-				SSP1_rate = (SSP1 - SSP1_baseline) / SSP1_baseline,
-				SSP2_rate = (SSP2 - SSP2_baseline) / SSP2_baseline,
-				SSP3_rate = (SSP3 - SSP3_baseline) / SSP3_baseline,
-				SSP4_rate = (SSP4 - SSP4_baseline) / SSP4_baseline,
-				SSP5_rate = (SSP5 - SSP5_baseline) / SSP5_baseline
-#				SSP1_rate = (1 + (SSP1 - SSP1_baseline) / SSP1_baseline),
-#				SSP2_rate = (1 + (SSP2 - SSP2_baseline) / SSP2_baseline),
-#				SSP3_rate = (1 + (SSP3 - SSP3_baseline) / SSP3_baseline),
-#				SSP4_rate = (1 + (SSP4 - SSP4_baseline) / SSP4_baseline),
-#				SSP5_rate = (1 + (SSP5 - SSP5_baseline) / SSP5_baseline)
-#				SSP1_rate = (1 + (SSP1 - lag(SSP1, 1)) / lag(SSP1, 1)),
-#				SSP2_rate = (1 + (SSP2 - lag(SSP2, 1)) / lag(SSP2, 1)),
-#				SSP3_rate = (1 + (SSP3 - lag(SSP3, 1)) / lag(SSP3, 1)),
-#				SSP4_rate = (1 + (SSP4 - lag(SSP4, 1)) / lag(SSP4, 1)),
-#				SSP5_rate = (1 + (SSP5 - lag(SSP5, 1)) / lag(SSP5, 1))
-		) %>%
-		filter(YEAR >= 2020 & YEAR <= 2100) %>%
-		select(YEAR, SEX, AGE, SSP1:SSP5, SSP1_rate:SSP5_rate, SSP1_baseline:SSP5_baseline)
-
-		
-write_csv(SSP_rates, paste(path_data, 'Processed', 'SSP_03_rates.csv', sep = delimiter_path))
-
-
-# The Hauer workflow assumes that the entire country is processed.  To downscale, the SSP is weighted by the local population
-# country population ratio.
-test <- left_join(totals2, SSP_rates) %>%
-		mutate(
-#				SSP1 = SSP1 * percentage * 1000000,
-#				SSP2 = SSP2 * percentage * 1000000,
-#				SSP3 = SSP3 * percentage * 1000000,
-#				SSP4 = SSP4 * percentage * 1000000,
-#				SSP5 = SSP5 * percentage * 1000000,
-#				SSP1 = (1 + (SSP1 - lag(SSP1, 1)) / lag(SSP1, 1)) * poptot * 1000000,
-#				SSP2 = (1 + (SSP2 - lag(SSP2, 1)) / lag(SSP2, 1)) * poptot * 1000000,
-#				SSP3 = (1 + (SSP3 - lag(SSP3, 1)) / lag(SSP3, 1)) * poptot * 1000000,
-#				SSP4 = (1 + (SSP4 - lag(SSP4, 1)) / lag(SSP4, 1)) * poptot * 1000000,
-#				SSP5 = (1 + (SSP5 - lag(SSP5, 1)) / lag(SSP5, 1)) * poptot * 1000000,
-				SSP1 = SSP1_rate * A,
-				SSP2 = SSP2_rate * A,
-				SSP3 = SSP3_rate * A,
-				SSP4 = SSP4_rate * A,
-				SSP5 = SSP5_rate * A,
-				GEOID = case_when(
-						GEOID == "46113" ~ "46102", # Shannon County (46113)'s name changed to Oglala Lakota (46102)
-						GEOID == "51917" ~ "51019", # Bedford City (51917) is merged into Bedford County (51019)
-						GEOID == "02270" ~ "02158", # Wade Hampton (02270) is actually (02158)
-						TRUE ~ as.character(GEOID)
-				)
-         ) %>%
-		 select(YEAR, SEX, STATE, COUNTY, GEOID, RACE, AGE, SSP1:SSP5)
-
- write_csv(test, paste(path_data, 'Processed', 'SSP_04_projected.csv', sep = delimiter_path))
- 
- 
- test2 <- test %>%
-		group_by(YEAR, STATE) %>%
-		dplyr::summarise(
-				SSP1 = sum(SSP1),
-				SSP2 = sum(SSP2),
-				SSP3 = sum(SSP3),
-				SSP4 = sum(SSP4),
-				SSP5 = sum(SSP5)
-		) %>%
-		gather(Scenario, Population, SSP1:SSP5)
-
-write_csv(test2, paste(path_data, 'Processed', 'SSP_05_summarized.csv', sep = delimiter_path))
+		gather(year, population, `2015`:`2100`) %>%
+		group_by(gender, age_bracket, scenario, year) %>%
+		dplyr::summarise(population = sum(population)) %>%
+		ungroup()
+	
+#	write_csv(pathways, paste(path_data, 'Processed', 'SSP_01_prepared.csv', sep = delimiter_path))
+	
+	
+	dbExecute(connection, 'DROP TABLE IF EXISTS "population__model__projection";')
+	
+	
+	sql <- '
+CREATE TABLE "population__model__projection" (
+	"id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+	"scenario" CHARACTER(4) NOT NULL,
+	"year" CHARACTER(4) NOT NULL,
+	"gender" CHARACTER(1) NOT NULL,
+	"age_bracket" CHARACTER(2) NOT NULL,
+	"population" FLOAT,
+	CONSTRAINT "AlternateKey_Age" UNIQUE ("year", "scenario", "gender", "age_bracket")
+);
+'
+	
+	dbExecute(connection, sql)
+	
+	
+	sql <- '
+INSERT INTO "population__model__projection" (
+	"scenario", "year", "gender", "age_bracket", "population" 
+)
+VALUES (
+	:scenario, :year, :gender, :age_bracket, :population
+);
+'
+	
+	insert <- dbSendStatement(connection, sql)
+	
+	dbBind(insert,
+			params = list(
+					scenario = pathways$scenario,
+					year = pathways$year,
+					gender = pathways$gender,
+					age_bracket = pathways$age_bracket,
+					population = pathways$population
+			)
+	)
+	
+	dbClearResult(insert)
+}
 
 
-test3 <- test %>%
-		group_by(YEAR, SEX, STATE, COUNTY, GEOID, RACE, AGE) %>%
-		dplyr::summarise(
-				SSP1 = sum(SSP1),
-				SSP2 = sum(SSP2),
-				SSP3 = sum(SSP3),
-				SSP4 = sum(SSP4),
-				SSP5 = sum(SSP5)
+sql <- '
+SELECT "year", "scenario", "gender", "age_bracket", "population"
+FROM "population__model__projection"
+ORDER BY "year", "gender", "age_bracket", "scenario";
+'
+
+pathways <- dbGetQuery(connection, sql)
+
+pathways <- pathways %>%
+		filter(as.integer(year) >= 2020 & as.integer(year) <= 2100) %>%
+		pivot_wider(names_from = scenario, values_from = population)
+
+
+#source('./Script/001-fipscodes.R')      # Getting a Fips List
+
+#source('./Script/003-proj_basedataload.R')   # loading the base data
+
+
+sql <- '
+SELECT "f"."year", "f"."geoid", "f"."gender", "f"."race", "f"."age_bracket",
+	SUM("f"."projection_a") AS "population"
+FROM "population__forecast__projection" AS "f"
+WHERE (
+		"f"."geoid" IN (\'17119\',\'17133\',\'17163\')
+	OR
+		"f"."geoid" IN (\'29071\',\'29099\',\'29183\',\'29189\',\'29510\')
+	)
+	AND "f"."type" = :method AND "f"."year" >= :year_begin AND "f"."year" <= :year_end
+GROUP BY "f"."year", "f"."geoid", "f"."gender", "f"."race", "f"."age_bracket"
+'
+
+select <- dbSendStatement(connection, sql)
+
+dbBind(select,
+		params = list(
+				method = 'ADD',
+				year_begin = constants$analysis_year_start_projection,
+				year_end = as.character(as.integer(constants$analysis_year_start_projection) + forecast_length)
+		)
+)
+projections_additive <- dbFetch(select)
+
+dbBind(select,
+		params = list(
+				method = 'Mult',
+				year_begin = constants$analysis_year_start_projection,
+				year_end = as.character(as.integer(constants$analysis_year_start_projection) + forecast_length)
+		)
+)
+projections_multiplicative <- dbFetch(select)
+
+dbClearResult(select)
+
+#write_csv(projections_additive, paste(path_data, 'Processed', 'Projection_additive.csv', sep = delimiter_path))
+#write_csv(projections_multiplicative, paste(path_data, 'Processed', 'Projection_multiplicative.csv', sep = delimiter_path))
+
+
+sql <- '
+SELECT "f"."year", "f"."geoid", "f"."gender", "f"."race", "f"."age_bracket",
+	SUM("f"."projection_a") AS "population"
+FROM "population__estimate_cdc__projection" AS "f"
+WHERE (
+		"f"."geoid" IN (\'17119\',\'17133\',\'17163\')
+	OR
+		"f"."geoid" IN (\'29071\',\'29099\',\'29183\',\'29189\',\'29510\')
+	)
+	AND "f"."type" = :method AND "f"."year" >= :year_begin AND "f"."year" <= :year_end
+GROUP BY "f"."year", "f"."geoid", "f"."gender", "f"."race", "f"."age_bracket"
+'
+
+select <- dbSendStatement(connection, sql)
+
+dbBind(select,
+		params = list(
+				method = 'ADD',
+				year_begin = constants$analysis_year_start_projection,
+				year_end = as.character(as.integer(constants$analysis_year_start_projection) + forecast_length)
+		)
+)
+projections_additive <- dbFetch(select)
+
+
+sql <- '
+SELECT "e"."geoid", "e"."race",
+	SUM("e"."population") AS "population"
+FROM "population__estimate_cdc__projection" AS "e"
+WHERE (
+		"e"."geoid" IN (\'17119\',\'17133\',\'17163\')
+	OR
+		"e"."geoid" IN (\'29071\',\'29099\',\'29183\',\'29189\',\'29510\')
+	)
+	AND "e"."year" = :year
+GROUP BY "e"."geoid", "e"."race";
+'
+
+select <- dbSendStatement(connection, sql)
+
+dbBind(select,
+		params = list(
+				year = constants$analysis_year_start_projection
+		)
+)
+
+projections_check <- dbFetch(select)
+
+
+projections <- left_join(
+				projections_additive, projections_multiplicative,
+				by = c('year', 'geoid', 'gender', 'race', 'age_bracket'),
+				suffix = c('.additive', '.multiplicative')
 		)
 
+# Compares the CCD projection against the future population to determine direction.  Increasing population uses the additive
+# method (CCD) and decreasing population uses the multiplicative (CCR) method.
+changes <- projections_additive %>%
+		filter(year == as.character(as.integer(constants$analysis_year_start_projection) + forecast_length)) %>%
+		group_by(geoid, race) %>%
+		dplyr::summarise(
+				population_additive = sum(population)
+		) %>%
+		left_join(projections_check, by = c('geoid', 'race')) %>%
+		mutate(
+				type = if_else(
+						population_additive >= population, 'additive', 'multiplicative'
+				)
+		) %>%
+		select(-population_additive, -population)
 
-write_csv(test3, paste(path_data, 'Processed', 'SSP_asrc.csv', sep = delimiter_path))
-#write_csv(test2, paste(path_data, 'Processed', 'SSP_sums.csv', sep = delimiter_path))
-
-#write_csv(test, paste(path_data, 'Processed', 'SSP_raw.csv', sep = delimiter_path))
+#write_csv(projections, paste(path_data, 'Processed', 'Projection_preprocess.csv', sep = delimiter_path))
 
 
-write_csv(SSPs, paste(path_data, 'Processed', 'SSP.csv', sep = delimiter_path))
+projections <- left_join(projections, changes, by = c('geoid', 'race')) %>%
+		mutate(population.change = if_else(type == 'additive', population.additive, population.multiplicative)) %>%
+		select(-population.additive, -population.multiplicative, -type) %>%
+		rename(
+				population = population.change
+		)
+
+#write_csv(projections, paste(path_data, 'Processed', 'Projection_combined.csv', sep = delimiter_path))
+
+
+# Set the "Middle of the Road" (SSP2) as the baseline pathway and adjust the population by the ratio to SSP2.
+projections <- left_join(projections, pathways, by = c('year', 'gender', 'age_bracket')) %>%
+		mutate(
+				population_ssp1 = population * (SSP1 / SSP2),
+				population_ssp2 = population * (SSP2 / SSP2),
+				population_ssp3 = population * (SSP3 / SSP2),
+				population_ssp4 = population * (SSP4 / SSP2),
+				population_ssp5 = population * (SSP5 / SSP2)
+		) %>%
+		select(-population, -(SSP1:SSP5))
+
+write_csv(projections, paste(path_data, 'Processed', 'SSP_asrc.csv', sep = delimiter_path))
+
+
+dbDisconnect(connection)

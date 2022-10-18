@@ -49,76 +49,20 @@
 #	server.
 #	- There are several aspects of this script that are redundant and should be refactored to eliminate the redundancy.
 #	- Review which variables are actually required and limit to just those variables.
+#	- Refactor to be a load only script.  Extract preparation logic to new script or a preface in an existing script.
 #
 ###############################################################################
 
 
 
-rm(list = ls())
-
-library(tidyverse)
-library(tigris)
-library(censusapi)
-library(tidycensus)
-library(here)
-library(properties)
+source('./Script/000-Libraries.R')      # loading in the libraries
+source('./Script/001-fipscodes.R')      # Getting a Fips List
 
 
-# Operating System Specific Settings
-system <- Sys.info()
-
-if (system['sysname'] == 'Darwin' || system['sysname'] == 'Windows') {
-	username <- unname(system['user'])
-	if (system['sysname'] == 'Windows') {
-		delimiter_path <- '\\'
-		cores <- 1
-	} else {
-		delimiter_path <- '/'
-		cores <- detectCores() - 1
-	}
-} else {
-	# Assumed to be either Linux or Unix.
-	username <- Sys.getenv('LOGNAME')
-	delimiter_path <- '/'
-	cores <- detectCores() - 1
-}
-
-# Files Accessed
-# User Credentials
-properties <- read.properties(paste(Sys.getenv('R_USER_HOME'), 'account.properties', sep = delimiter_path), encoding = 'ASCII')
-
-
-# Configuration
-path_base <- here()
-configuration <- read.properties(paste(path_base, 'Script', 'configuration.properties', sep = delimiter_path), encoding = 'ASCII')
-constants <- read.properties(paste(path_base, 'Script', 'application.properties', sep = delimiter_path), encoding = 'ASCII')
-
-
-
-# Configuration (move to file)
-path_data <- configuration$path_data
-
-# Census API Key
-key <- properties$api.key.census
-
-
-fipslist <- read_csv(file="https://www2.census.gov/geo/docs/reference/codes/files/national_county.txt", col_names = FALSE) %>%
-		mutate(GEOID = paste0(X2, X3)) %>%
-		dplyr::rename(
-				state = X1,
-				STATEID = X2,
-				CNTYID = X3,
-				NAME = X4
-		) %>%
-		filter(GEOID %in% c('17119', '17133', '17163', '29071', '29099', '29183', '29189', '29510'))
-
-stateid = unlist(list(unique(fipslist$STATEID)))
-
-getgq_2010 = function(x) {
+getgq_2010 = function(x, variables) {
 	tryCatch(
 			{
 				# listing the available census variables in the population estimates agegroups data file
-				# list <- listCensusMetadata(name = "sf1", vintage = "2010", type ="variables")
 				occupied_hhpopvars <- c(
 						'PCT013B006', 'PCT013B007', 'PCT013B008', 'PCT013B009', 'PCT013B010', 'PCT013B011', 'PCT013B012',
 						'PCT013B013', 'PCT013B014', 'PCT013B015', 'PCT013B016', 'PCT013B017', 'PCT013B018', 'PCT013B019',
@@ -179,53 +123,53 @@ getgq_2010 = function(x) {
 				)
 				
 				totpopvars <- c(
-						'P012B003',  'P012B004',  'P012B005',  'P012B006',  'P012B007',  'P012B008',  'P012B009',  'P012B010',
-						'P012B011',  'P012B012',  'P012B013',  'P012B014',  'P012B015',  'P012B016',  'P012B017',  'P012B018',
-						'P012B019',  'P012B020',  'P012B021',  'P012B022',  'P012B023',  'P012B024',  'P012B025',
-						'P012B027',  'P012B028',  'P012B029',  'P012B030',  'P012B031',  'P012B032',  'P012B033',  'P012B034',
-						'P012B035',  'P012B036',  'P012B037',  'P012B038',  'P012B039',  'P012B040',  'P012B041',  'P012B042',
-						'P012B043',  'P012B044',  'P012B045',  'P012B046',  'P012B047',  'P012B048',  'P012B049',
-						'P012C003',  'P012C004',  'P012C005',  'P012C006',  'P012C007',  'P012C008',  'P012C009',  'P012C010',
-						'P012C011',  'P012C012',  'P012C013',  'P012C014',  'P012C015',  'P012C016',  'P012C017',  'P012C018',
-						'P012C019',  'P012C020',  'P012C021',  'P012C022',  'P012C023',  'P012C024',  'P012C025',
-						'P012C027',  'P012C028',  'P012C029',  'P012C030',  'P012C031',  'P012C032',  'P012C033',  'P012C034',
-						'P012C035',  'P012C036',  'P012C037',  'P012C038',  'P012C039',  'P012C040',  'P012C041',  'P012C042',
-						'P012C043',  'P012C044',  'P012C045',  'P012C046',  'P012C047',  'P012C048',  'P012C049',  'P012D003',
-						'P012D004',  'P012D005',  'P012D006',  'P012D007',  'P012D008',  'P012D009',  'P012D010',  'P012D011',
-						'P012D012',  'P012D013',  'P012D014',  'P012D015',  'P012D016',  'P012D017',  'P012D018',  'P012D019',
-						'P012D020',  'P012D021',  'P012D022',  'P012D023',  'P012D024',  'P012D025',  'P012D027',
-						'P012D028',  'P012D029',  'P012D030',  'P012D031',  'P012D032',  'P012D033',  'P012D034',  'P012D035',
-						'P012D036',  'P012D037',  'P012D038',  'P012D039',  'P012D040',  'P012D041',  'P012D042',  'P012D043',
-						'P012D044',  'P012D045',  'P012D046',  'P012D047',  'P012D048',  'P012D049',  'P012E003',  'P012E004',
-						'P012E005',  'P012E006',  'P012E007',  'P012E008',  'P012E009',  'P012E010',  'P012E011',  'P012E012',
-						'P012E013',  'P012E014',  'P012E015',  'P012E016',  'P012E017',  'P012E018',  'P012E019',  'P012E020',
-						'P012E021',  'P012E022',  'P012E023',  'P012E024',  'P012E025',    'P012E027',  'P012E028',
-						'P012E029',  'P012E030',  'P012E031',  'P012E032',  'P012E033',  'P012E034',  'P012E035',  'P012E036',
-						'P012E037',  'P012E038',  'P012E039',  'P012E040',  'P012E041',  'P012E042',  'P012E043',  'P012E044',
-						'P012E045',  'P012E046',  'P012E047',  'P012E048',  'P012E049',  'P012F003',  'P012F004',  'P012F005',
-						'P012F006',  'P012F007',  'P012F008',  'P012F009',  'P012F010',  'P012F011',  'P012F012',  'P012F013',
-						'P012F014',  'P012F015',  'P012F016',  'P012F017',  'P012F018',  'P012F019',  'P012F020',  'P012F021',
-						'P012F022',  'P012F023',  'P012F024',  'P012F025',    'P012F027',  'P012F028',  'P012F029',
-						'P012F030',  'P012F031',  'P012F032',  'P012F033',  'P012F034',  'P012F035',  'P012F036',  'P012F037',
-						'P012F038',  'P012F039',  'P012F040',  'P012F041',  'P012F042',  'P012F043',  'P012F044',  'P012F045',
-						'P012F046',  'P012F047',  'P012F048',  'P012F049',  'P012G003',  'P012G004',  'P012G005',  'P012G006',
-						'P012G007',  'P012G008',  'P012G009',  'P012G010',  'P012G011',  'P012G012',  'P012G013',  'P012G014',
-						'P012G015',  'P012G016',  'P012G017',  'P012G018',  'P012G019',  'P012G020',  'P012G021',  'P012G022',
-						'P012G023',  'P012G024',  'P012G025',    'P012G027',  'P012G028',  'P012G029',  'P012G030',
-						'P012G031',  'P012G032',  'P012G033',  'P012G034',  'P012G035',  'P012G036',  'P012G037',  'P012G038',
-						'P012G039',  'P012G040',  'P012G041',  'P012G042',  'P012G043',  'P012G044',  'P012G045',  'P012G046',
-						'P012G047',  'P012G048',  'P012G049',  'P012H003',  'P012H004',  'P012H005',  'P012H006',  'P012H007',
-						'P012H008',  'P012H009',  'P012H010',  'P012H011',  'P012H012',  'P012H013',  'P012H014',  'P012H015',
-						'P012H016',  'P012H017',  'P012H018',  'P012H019',  'P012H020',  'P012H021',  'P012H022',  'P012H023',
-						'P012H024',  'P012H025',    'P012H027',  'P012H028',  'P012H029',  'P012H030',  'P012H031',
-						'P012H032',  'P012H033',  'P012H034',  'P012H035',  'P012H036',  'P012H037',  'P012H038',  'P012H039',
-						'P012H040',  'P012H041',  'P012H042',  'P012H043',  'P012H044',  'P012H045',  'P012H046',  'P012H047',
-						'P012H048',  'P012H049',  'P012I003',  'P012I004',  'P012I005',  'P012I006',  'P012I007',  'P012I008',
-						'P012I009',  'P012I010',  'P012I011',  'P012I012',  'P012I013',  'P012I014',  'P012I015',  'P012I016',
-						'P012I017',  'P012I018',  'P012I019',  'P012I020',  'P012I021',  'P012I022',  'P012I023',  'P012I024',
-						'P012I025',  'P012I027',  'P012I028',  'P012I029',  'P012I030',  'P012I031',  'P012I032',
-						'P012I033',  'P012I034',  'P012I035',  'P012I036',  'P012I037',  'P012I038',  'P012I039',  'P012I040',
-						'P012I041',  'P012I042',  'P012I043',  'P012I044',  'P012I045',  'P012I046',  'P012I047',  'P012I048',
+						'P012B003', 'P012B004', 'P012B005', 'P012B006', 'P012B007', 'P012B008', 'P012B009', 'P012B010',
+						'P012B011', 'P012B012', 'P012B013', 'P012B014', 'P012B015', 'P012B016', 'P012B017', 'P012B018',
+						'P012B019', 'P012B020', 'P012B021', 'P012B022', 'P012B023', 'P012B024', 'P012B025',
+						'P012B027', 'P012B028', 'P012B029', 'P012B030', 'P012B031', 'P012B032', 'P012B033', 'P012B034',
+						'P012B035', 'P012B036', 'P012B037', 'P012B038', 'P012B039', 'P012B040', 'P012B041', 'P012B042',
+						'P012B043', 'P012B044', 'P012B045', 'P012B046', 'P012B047', 'P012B048', 'P012B049',
+						'P012C003', 'P012C004', 'P012C005', 'P012C006', 'P012C007', 'P012C008', 'P012C009', 'P012C010',
+						'P012C011', 'P012C012', 'P012C013', 'P012C014', 'P012C015', 'P012C016', 'P012C017', 'P012C018',
+						'P012C019', 'P012C020', 'P012C021', 'P012C022', 'P012C023', 'P012C024', 'P012C025',
+						'P012C027', 'P012C028', 'P012C029', 'P012C030', 'P012C031', 'P012C032', 'P012C033', 'P012C034',
+						'P012C035', 'P012C036', 'P012C037', 'P012C038', 'P012C039', 'P012C040', 'P012C041', 'P012C042',
+						'P012C043', 'P012C044', 'P012C045', 'P012C046', 'P012C047', 'P012C048', 'P012C049', 'P012D003',
+						'P012D004', 'P012D005', 'P012D006', 'P012D007', 'P012D008', 'P012D009', 'P012D010', 'P012D011',
+						'P012D012', 'P012D013', 'P012D014', 'P012D015', 'P012D016', 'P012D017', 'P012D018', 'P012D019',
+						'P012D020', 'P012D021', 'P012D022', 'P012D023', 'P012D024', 'P012D025', 'P012D027',
+						'P012D028', 'P012D029', 'P012D030', 'P012D031', 'P012D032', 'P012D033', 'P012D034', 'P012D035',
+						'P012D036', 'P012D037', 'P012D038', 'P012D039', 'P012D040', 'P012D041', 'P012D042', 'P012D043',
+						'P012D044', 'P012D045', 'P012D046', 'P012D047', 'P012D048', 'P012D049', 'P012E003', 'P012E004',
+						'P012E005', 'P012E006', 'P012E007', 'P012E008', 'P012E009', 'P012E010', 'P012E011', 'P012E012',
+						'P012E013', 'P012E014', 'P012E015', 'P012E016', 'P012E017', 'P012E018', 'P012E019', 'P012E020',
+						'P012E021', 'P012E022', 'P012E023', 'P012E024', 'P012E025', 'P012E027', 'P012E028',
+						'P012E029', 'P012E030', 'P012E031', 'P012E032', 'P012E033', 'P012E034', 'P012E035', 'P012E036',
+						'P012E037', 'P012E038', 'P012E039', 'P012E040', 'P012E041', 'P012E042', 'P012E043', 'P012E044',
+						'P012E045', 'P012E046', 'P012E047', 'P012E048', 'P012E049', 'P012F003', 'P012F004', 'P012F005',
+						'P012F006', 'P012F007', 'P012F008', 'P012F009', 'P012F010', 'P012F011', 'P012F012', 'P012F013',
+						'P012F014', 'P012F015', 'P012F016', 'P012F017', 'P012F018', 'P012F019', 'P012F020', 'P012F021',
+						'P012F022', 'P012F023', 'P012F024', 'P012F025', 'P012F027', 'P012F028', 'P012F029',
+						'P012F030', 'P012F031', 'P012F032', 'P012F033', 'P012F034', 'P012F035', 'P012F036', 'P012F037',
+						'P012F038', 'P012F039', 'P012F040', 'P012F041', 'P012F042', 'P012F043', 'P012F044', 'P012F045',
+						'P012F046', 'P012F047', 'P012F048', 'P012F049', 'P012G003', 'P012G004', 'P012G005', 'P012G006',
+						'P012G007', 'P012G008', 'P012G009', 'P012G010', 'P012G011', 'P012G012', 'P012G013', 'P012G014',
+						'P012G015', 'P012G016', 'P012G017', 'P012G018', 'P012G019', 'P012G020', 'P012G021', 'P012G022',
+						'P012G023', 'P012G024', 'P012G025', 'P012G027', 'P012G028', 'P012G029', 'P012G030',
+						'P012G031', 'P012G032', 'P012G033', 'P012G034', 'P012G035', 'P012G036', 'P012G037', 'P012G038',
+						'P012G039', 'P012G040', 'P012G041', 'P012G042', 'P012G043', 'P012G044', 'P012G045', 'P012G046',
+						'P012G047', 'P012G048', 'P012G049', 'P012H003', 'P012H004', 'P012H005', 'P012H006', 'P012H007',
+						'P012H008', 'P012H009', 'P012H010', 'P012H011', 'P012H012', 'P012H013', 'P012H014', 'P012H015',
+						'P012H016', 'P012H017', 'P012H018', 'P012H019', 'P012H020', 'P012H021', 'P012H022', 'P012H023',
+						'P012H024', 'P012H025', 'P012H027', 'P012H028', 'P012H029', 'P012H030', 'P012H031',
+						'P012H032', 'P012H033', 'P012H034', 'P012H035', 'P012H036', 'P012H037', 'P012H038', 'P012H039',
+						'P012H040', 'P012H041', 'P012H042', 'P012H043', 'P012H044', 'P012H045', 'P012H046', 'P012H047',
+						'P012H048', 'P012H049', 'P012I003', 'P012I004', 'P012I005', 'P012I006', 'P012I007', 'P012I008',
+						'P012I009', 'P012I010', 'P012I011', 'P012I012', 'P012I013', 'P012I014', 'P012I015', 'P012I016',
+						'P012I017', 'P012I018', 'P012I019', 'P012I020', 'P012I021', 'P012I022', 'P012I023', 'P012I024',
+						'P012I025', 'P012I027', 'P012I028', 'P012I029', 'P012I030', 'P012I031', 'P012I032',
+						'P012I033', 'P012I034', 'P012I035', 'P012I036', 'P012I037', 'P012I038', 'P012I039', 'P012I040',
+						'P012I041', 'P012I042', 'P012I043', 'P012I044', 'P012I045', 'P012I046', 'P012I047', 'P012I048',
 						'P012I049',
 						"COUNTY", "NAME"
 				)
@@ -240,7 +184,8 @@ getgq_2010 = function(x) {
 								regionin = paste0("state:", x)
 						) %>%
 						gather(name, TOTAL, P012B003:P012I049) %>%
-						left_join(., list) %>%
+						#left_join(., list) %>%
+						left_join(., variables) %>%
 						mutate(Racecode = substr(name, 5, 5)) %>%
 						separate(label, c('drop', 'Sex', 'pAge'), sep = '!!') %>%
 						separate(pAge, c("Age", "Drop"), sep = " t") %>%
@@ -265,6 +210,7 @@ getgq_2010 = function(x) {
 										Racecode == "I" ~ "WHITE, NH"
 								)
 						) %>%
+						mutate(Age = as.integer(Age)) %>%
 						dplyr::select(-drop, -Drop, -concept, -Racecode, -name) %>%
 						group_by(state, county, NAME, Sex, Race, Age) %>%
 						dplyr::summarise(TOTAL = sum(TOTAL))
@@ -278,7 +224,8 @@ getgq_2010 = function(x) {
 								region = "COUNTY:*",
 								regionin = paste0("state:", x)) %>%
 						gather(name, HHPOP, PCT013B006:PCT013B049) %>%
-						left_join(., list) %>%
+						#left_join(., list) %>%
+						left_join(., variables) %>%
 						mutate(Racecode = substr(name, 7, 7)) %>%
 						separate(label, c('drop', 'Sex', 'pAge'), sep = '!!') %>%
 						separate(pAge, c("Age", "Drop"), sep = " t") %>%
@@ -303,6 +250,7 @@ getgq_2010 = function(x) {
 										Racecode == "I" ~ "WHITE, NH"
 								)
 						)  %>%
+						mutate(Age = as.integer(Age)) %>%
 						dplyr::select(-drop, -Drop, -concept, -Racecode, -name) %>%
 						group_by(state, county, NAME, Sex, Race, Age) %>%
 						dplyr::summarise(HHPOP = sum(HHPOP))
@@ -312,33 +260,34 @@ getgq_2010 = function(x) {
 						ungroup() %>%
 						mutate(
 								GQ = TOTAL - HHPOP,
-								Age = as.numeric(Age),
-								YEAR = 2010,
+#								Age = as.numeric(Age),
+								YEAR = '2010',
 								STATE = state,
 								COUNTY = county,
 								SEX = case_when(
 										Sex == "Female" ~ "FEMALE",
 										Sex == "Male" ~ "MALE"
 								),
-								AGEGRP = case_when(
-										Age == 0 ~ 1,
-										Age == 5 ~ 2,
-										Age == 10 ~ 3,
-										Age == 15 ~ 4,
-										Age == 20 ~ 5,
-										Age == 25 ~ 6,
-										Age == 30 ~ 7,
-										Age == 35 ~ 8,
-										Age == 40 ~ 9,
-										Age == 45 ~ 10,
-										Age == 50 ~ 11,
-										Age == 55 ~ 12,
-										Age == 60 ~ 13,
-										Age == 65 ~ 14,
-										Age == 70 ~ 15,
-										Age == 75 ~ 16,
-										Age == 80 ~ 17,
-										Age == 85 ~ 18
+								#AGEGRP = case_when(
+								age_bracket = case_when(
+										Age == 0 ~ '01',
+										Age == 5 ~ '02',
+										Age == 10 ~ '03',
+										Age == 15 ~ '04',
+										Age == 20 ~ '05',
+										Age == 25 ~ '06',
+										Age == 30 ~ '07',
+										Age == 35 ~ '08',
+										Age == 40 ~ '09',
+										Age == 45 ~ '10',
+										Age == 50 ~ '11',
+										Age == 55 ~ '12',
+										Age == 60 ~ '13',
+										Age == 65 ~ '14',
+										Age == 70 ~ '15',
+										Age == 75 ~ '16',
+										Age == 80 ~ '17',
+										Age == 85 ~ '18'
 								)
 						) %>%
 						dplyr::rename(RACE = Race) %>%
@@ -352,17 +301,19 @@ getgq_2010 = function(x) {
 }
 
 
-getgq_2000 = function(x) {
+getgq_2000 = function(x, variables, baseyear) {
 	tryCatch(
 			{
 				# listing the available census variables in the population estimates agegroups data file
-				# list <- listCensusMetadata(name = "sf1", vintage = baseyear, type ="variables")
 				occupied_hhpopvars <- c(
-						'PCT013B006', 'PCT013B007', 'PCT013B008', 'PCT013B009', 'PCT013B010', 'PCT013B011', 'PCT013B012', 'PCT013B013', 'PCT013B014',
-						'PCT013B015', 'PCT013B016', 'PCT013B017', 'PCT013B018', 'PCT013B019', 'PCT013B020', 'PCT013B021', 'PCT013B022', 'PCT013B023',
+						'PCT013B006', 'PCT013B007', 'PCT013B008', 'PCT013B009', 'PCT013B010', 'PCT013B011', 'PCT013B012', 'PCT013B013',
+						'PCT013B014',
+						'PCT013B015', 'PCT013B016', 'PCT013B017', 'PCT013B018', 'PCT013B019', 'PCT013B020', 'PCT013B021', 'PCT013B022',
+						'PCT013B023',
 						'PCT013B024', 'PCT013B025', 'PCT013C003', 'PCT013C004', 'PCT013C005', 'PCT013C006', 'PCT013C007',
-						'PCT013C008', 'PCT013C009', 'PCT013C010', 'PCT013C011', 'PCT013C012','PCT013C013', 'PCT013C014', 'PCT013C015',
-						'PCT013C016', 'PCT013C017', 'PCT013C018', 'PCT013C019', 'PCT013C020', 'PCT013C021', 'PCT013C022', 'PCT013C023', 'PCT013C024', 'PCT013C025', 'PCT013C027',
+						'PCT013C008', 'PCT013C009', 'PCT013C010', 'PCT013C011', 'PCT013C012', 'PCT013C013', 'PCT013C014', 'PCT013C015',
+						'PCT013C016', 'PCT013C017', 'PCT013C018', 'PCT013C019', 'PCT013C020', 'PCT013C021', 'PCT013C022', 'PCT013C023',
+						'PCT013C024', 'PCT013C025', 'PCT013C027',
 						'PCT013C028', 'PCT013C029', 'PCT013C030', 'PCT013C031', 'PCT013C032', 'PCT013C033', 'PCT013C034', 'PCT013C035',
 						'PCT013C036', 'PCT013C037', 'PCT013C038', 'PCT013C039', 'PCT013C040', 'PCT013C041', 'PCT013C042', 'PCT013C043',
 						'PCT013C044', 'PCT013C045', 'PCT013C046', 'PCT013C047', 'PCT013C048', 'PCT013C049',
@@ -410,53 +361,53 @@ getgq_2000 = function(x) {
 				)
 				
 				totpopvars <- c(
-						'P012B003',  'P012B004',  'P012B005',  'P012B006',  'P012B007',  'P012B008',  'P012B009',  'P012B010',
-						'P012B011',  'P012B012',  'P012B013',  'P012B014',  'P012B015',  'P012B016',  'P012B017',  'P012B018',
-						'P012B019',  'P012B020',  'P012B021',  'P012B022',  'P012B023',  'P012B024',  'P012B025',
-						'P012B027',  'P012B028',  'P012B029',  'P012B030',  'P012B031',  'P012B032',  'P012B033',  'P012B034',
-						'P012B035',  'P012B036',  'P012B037',  'P012B038',  'P012B039',  'P012B040',  'P012B041',  'P012B042',
-						'P012B043',  'P012B044',  'P012B045',  'P012B046',  'P012B047',  'P012B048',  'P012B049',
-						'P012C003',  'P012C004',  'P012C005',  'P012C006',  'P012C007',  'P012C008',  'P012C009',  'P012C010',
-						'P012C011',  'P012C012',  'P012C013',  'P012C014',  'P012C015',  'P012C016',  'P012C017',  'P012C018',
-						'P012C019',  'P012C020',  'P012C021',  'P012C022',  'P012C023',  'P012C024',  'P012C025',
-						'P012C027',  'P012C028',  'P012C029',  'P012C030',  'P012C031',  'P012C032',  'P012C033',  'P012C034',
-						'P012C035',  'P012C036',  'P012C037',  'P012C038',  'P012C039',  'P012C040',  'P012C041',  'P012C042',
-						'P012C043',  'P012C044',  'P012C045',  'P012C046',  'P012C047',  'P012C048',  'P012C049',  'P012D003',
-						'P012D004',  'P012D005',  'P012D006',  'P012D007',  'P012D008',  'P012D009',  'P012D010',  'P012D011',
-						'P012D012',  'P012D013',  'P012D014',  'P012D015',  'P012D016',  'P012D017',  'P012D018',  'P012D019',
-						'P012D020',  'P012D021',  'P012D022',  'P012D023',  'P012D024',  'P012D025',    'P012D027',
-						'P012D028',  'P012D029',  'P012D030',  'P012D031',  'P012D032',  'P012D033',  'P012D034',  'P012D035',
-						'P012D036',  'P012D037',  'P012D038',  'P012D039',  'P012D040',  'P012D041',  'P012D042',  'P012D043',
-						'P012D044',  'P012D045',  'P012D046',  'P012D047',  'P012D048',  'P012D049',  'P012E003',  'P012E004',
-						'P012E005',  'P012E006',  'P012E007',  'P012E008',  'P012E009',  'P012E010',  'P012E011',  'P012E012',
-						'P012E013',  'P012E014',  'P012E015',  'P012E016',  'P012E017',  'P012E018',  'P012E019',  'P012E020',
-						'P012E021',  'P012E022',  'P012E023',  'P012E024',  'P012E025',    'P012E027',  'P012E028',
-						'P012E029',  'P012E030',  'P012E031',  'P012E032',  'P012E033',  'P012E034',  'P012E035',  'P012E036',
-						'P012E037',  'P012E038',  'P012E039',  'P012E040',  'P012E041',  'P012E042',  'P012E043',  'P012E044',
-						'P012E045',  'P012E046',  'P012E047',  'P012E048',  'P012E049',  'P012F003',  'P012F004',  'P012F005',
-						'P012F006',  'P012F007',  'P012F008',  'P012F009',  'P012F010',  'P012F011',  'P012F012',  'P012F013',
-						'P012F014',  'P012F015',  'P012F016',  'P012F017',  'P012F018',  'P012F019',  'P012F020',  'P012F021',
-						'P012F022',  'P012F023',  'P012F024',  'P012F025',    'P012F027',  'P012F028',  'P012F029',
-						'P012F030',  'P012F031',  'P012F032',  'P012F033',  'P012F034',  'P012F035',  'P012F036',  'P012F037',
-						'P012F038',  'P012F039',  'P012F040',  'P012F041',  'P012F042',  'P012F043',  'P012F044',  'P012F045',
-						'P012F046',  'P012F047',  'P012F048',  'P012F049',  'P012G003',  'P012G004',  'P012G005',  'P012G006',
-						'P012G007',  'P012G008',  'P012G009',  'P012G010',  'P012G011',  'P012G012',  'P012G013',  'P012G014',
-						'P012G015',  'P012G016',  'P012G017',  'P012G018',  'P012G019',  'P012G020',  'P012G021',  'P012G022',
-						'P012G023',  'P012G024',  'P012G025',    'P012G027',  'P012G028',  'P012G029',  'P012G030',
-						'P012G031',  'P012G032',  'P012G033',  'P012G034',  'P012G035',  'P012G036',  'P012G037',  'P012G038',
-						'P012G039',  'P012G040',  'P012G041',  'P012G042',  'P012G043',  'P012G044',  'P012G045',  'P012G046',
-						'P012G047',  'P012G048',  'P012G049',  'P012H003',  'P012H004',  'P012H005',  'P012H006',  'P012H007',
-						'P012H008',  'P012H009',  'P012H010',  'P012H011',  'P012H012',  'P012H013',  'P012H014',  'P012H015',
-						'P012H016',  'P012H017',  'P012H018',  'P012H019',  'P012H020',  'P012H021',  'P012H022',  'P012H023',
-						'P012H024',  'P012H025',    'P012H027',  'P012H028',  'P012H029',  'P012H030',  'P012H031',
-						'P012H032',  'P012H033',  'P012H034',  'P012H035',  'P012H036',  'P012H037',  'P012H038',  'P012H039',
-						'P012H040',  'P012H041',  'P012H042',  'P012H043',  'P012H044',  'P012H045',  'P012H046',  'P012H047',
-						'P012H048',  'P012H049',  'P012I003',  'P012I004',  'P012I005',  'P012I006',  'P012I007',  'P012I008',
-						'P012I009',  'P012I010',  'P012I011',  'P012I012',  'P012I013',  'P012I014',  'P012I015',  'P012I016',
-						'P012I017',  'P012I018',  'P012I019',  'P012I020',  'P012I021',  'P012I022',  'P012I023',  'P012I024',
-						'P012I025',  'P012I027',  'P012I028',  'P012I029',  'P012I030',  'P012I031',  'P012I032',
-						'P012I033',  'P012I034',  'P012I035',  'P012I036',  'P012I037',  'P012I038',  'P012I039',  'P012I040',
-						'P012I041',  'P012I042',  'P012I043',  'P012I044',  'P012I045',  'P012I046',  'P012I047',  'P012I048',
+						'P012B003', 'P012B004', 'P012B005', 'P012B006', 'P012B007', 'P012B008', 'P012B009', 'P012B010',
+						'P012B011', 'P012B012', 'P012B013', 'P012B014', 'P012B015', 'P012B016', 'P012B017', 'P012B018',
+						'P012B019', 'P012B020', 'P012B021', 'P012B022', 'P012B023', 'P012B024', 'P012B025',
+						'P012B027', 'P012B028', 'P012B029', 'P012B030', 'P012B031', 'P012B032', 'P012B033', 'P012B034',
+						'P012B035', 'P012B036', 'P012B037', 'P012B038', 'P012B039', 'P012B040', 'P012B041', 'P012B042',
+						'P012B043', 'P012B044', 'P012B045', 'P012B046', 'P012B047', 'P012B048', 'P012B049',
+						'P012C003', 'P012C004', 'P012C005', 'P012C006', 'P012C007', 'P012C008', 'P012C009', 'P012C010',
+						'P012C011', 'P012C012', 'P012C013', 'P012C014', 'P012C015', 'P012C016', 'P012C017', 'P012C018',
+						'P012C019', 'P012C020', 'P012C021', 'P012C022', 'P012C023', 'P012C024', 'P012C025',
+						'P012C027', 'P012C028', 'P012C029', 'P012C030', 'P012C031', 'P012C032', 'P012C033', 'P012C034',
+						'P012C035', 'P012C036', 'P012C037', 'P012C038', 'P012C039', 'P012C040', 'P012C041', 'P012C042',
+						'P012C043', 'P012C044', 'P012C045', 'P012C046', 'P012C047', 'P012C048', 'P012C049', 'P012D003',
+						'P012D004', 'P012D005', 'P012D006', 'P012D007', 'P012D008', 'P012D009', 'P012D010', 'P012D011',
+						'P012D012', 'P012D013', 'P012D014', 'P012D015', 'P012D016', 'P012D017', 'P012D018', 'P012D019',
+						'P012D020', 'P012D021', 'P012D022', 'P012D023', 'P012D024', 'P012D025', 'P012D027',
+						'P012D028', 'P012D029', 'P012D030', 'P012D031', 'P012D032', 'P012D033', 'P012D034', 'P012D035',
+						'P012D036', 'P012D037', 'P012D038', 'P012D039', 'P012D040', 'P012D041', 'P012D042', 'P012D043',
+						'P012D044', 'P012D045', 'P012D046', 'P012D047', 'P012D048', 'P012D049', 'P012E003', 'P012E004',
+						'P012E005', 'P012E006', 'P012E007', 'P012E008', 'P012E009', 'P012E010', 'P012E011', 'P012E012',
+						'P012E013', 'P012E014', 'P012E015', 'P012E016', 'P012E017', 'P012E018', 'P012E019', 'P012E020',
+						'P012E021', 'P012E022', 'P012E023', 'P012E024', 'P012E025', 'P012E027', 'P012E028',
+						'P012E029', 'P012E030', 'P012E031', 'P012E032', 'P012E033', 'P012E034', 'P012E035', 'P012E036',
+						'P012E037', 'P012E038', 'P012E039', 'P012E040', 'P012E041', 'P012E042', 'P012E043', 'P012E044',
+						'P012E045', 'P012E046', 'P012E047', 'P012E048', 'P012E049', 'P012F003', 'P012F004', 'P012F005',
+						'P012F006', 'P012F007', 'P012F008', 'P012F009', 'P012F010', 'P012F011', 'P012F012', 'P012F013',
+						'P012F014', 'P012F015', 'P012F016', 'P012F017', 'P012F018', 'P012F019', 'P012F020', 'P012F021',
+						'P012F022', 'P012F023', 'P012F024', 'P012F025', 'P012F027', 'P012F028', 'P012F029',
+						'P012F030', 'P012F031', 'P012F032', 'P012F033', 'P012F034', 'P012F035', 'P012F036', 'P012F037',
+						'P012F038', 'P012F039', 'P012F040', 'P012F041', 'P012F042', 'P012F043', 'P012F044', 'P012F045',
+						'P012F046', 'P012F047', 'P012F048', 'P012F049', 'P012G003', 'P012G004', 'P012G005', 'P012G006',
+						'P012G007', 'P012G008', 'P012G009', 'P012G010', 'P012G011', 'P012G012', 'P012G013', 'P012G014',
+						'P012G015', 'P012G016', 'P012G017', 'P012G018', 'P012G019', 'P012G020', 'P012G021', 'P012G022',
+						'P012G023', 'P012G024', 'P012G025', 'P012G027', 'P012G028', 'P012G029', 'P012G030',
+						'P012G031', 'P012G032', 'P012G033', 'P012G034', 'P012G035', 'P012G036', 'P012G037', 'P012G038',
+						'P012G039', 'P012G040', 'P012G041', 'P012G042', 'P012G043', 'P012G044', 'P012G045', 'P012G046',
+						'P012G047', 'P012G048', 'P012G049', 'P012H003', 'P012H004', 'P012H005', 'P012H006', 'P012H007',
+						'P012H008', 'P012H009', 'P012H010', 'P012H011', 'P012H012', 'P012H013', 'P012H014', 'P012H015',
+						'P012H016', 'P012H017', 'P012H018', 'P012H019', 'P012H020', 'P012H021', 'P012H022', 'P012H023',
+						'P012H024', 'P012H025', 'P012H027', 'P012H028', 'P012H029', 'P012H030', 'P012H031',
+						'P012H032', 'P012H033', 'P012H034', 'P012H035', 'P012H036', 'P012H037', 'P012H038', 'P012H039',
+						'P012H040', 'P012H041', 'P012H042', 'P012H043', 'P012H044', 'P012H045', 'P012H046', 'P012H047',
+						'P012H048', 'P012H049', 'P012I003', 'P012I004', 'P012I005', 'P012I006', 'P012I007', 'P012I008',
+						'P012I009', 'P012I010', 'P012I011', 'P012I012', 'P012I013', 'P012I014', 'P012I015', 'P012I016',
+						'P012I017', 'P012I018', 'P012I019', 'P012I020', 'P012I021', 'P012I022', 'P012I023', 'P012I024',
+						'P012I025', 'P012I027', 'P012I028', 'P012I029', 'P012I030', 'P012I031', 'P012I032',
+						'P012I033', 'P012I034', 'P012I035', 'P012I036', 'P012I037', 'P012I038', 'P012I039', 'P012I040',
+						'P012I041', 'P012I042', 'P012I043', 'P012I044', 'P012I045', 'P012I046', 'P012I047', 'P012I048',
 						'P012I049',
 						"COUNTY", "NAME"
 				)
@@ -470,38 +421,40 @@ getgq_2000 = function(x) {
 								region = "COUNTY:*",
 								regionin = paste0("state:", x))  %>%
 						gather(name, TOTAL, P012B003:P012I049) %>%
-						left_join(., list) %>%
+						#left_join(., list) %>%
+						left_join(., variables) %>%
 						mutate(
 								Racecode = substr(name, 5, 5),
 								label = as.character(label)
 						) %>%
 						separate(label, c('Drop', 'Sex', 'Age'), sep = '!!') %>%
 						mutate(
-								Age = case_when(
-										Age == "Under 5 years" ~ 1,
-										Age == "5 to 9 years" ~ 2,
-										Age == "10 to 14 years" ~ 3,
-										Age == "15 to 17 years" ~ 4,
-										Age == "18 and 19 years" ~ 4,
-										Age == "20 years" ~ 5,
-										Age == "21 years" ~ 5,
-										Age == "22 to 24 years" ~ 5,
-										Age == "25 to 29 years" ~ 6,
-										Age == "30 to 34 years" ~ 7,
-										Age == "35 to 39 years" ~ 8,
-										Age == "40 to 44 years" ~ 9,
-										Age == "45 to 49 years" ~ 10,
-										Age == "50 to 54 years" ~ 11,
-										Age == "55 to 59 years" ~ 12,
-										Age == "60 and 61 years" ~ 13,
-										Age == "62 to 64 years" ~ 13,
-										Age == "65 and 66 years" ~ 14,
-										Age == "67 to 69 years" ~ 14,
-										Age == "70 to 74 years" ~ 15,
-										Age == "" ~ 15,
-										Age == "75 to 79 years" ~ 16,
-										Age == "80 to 84 years" ~ 17,
-										Age == "85 years and over" ~ 18
+								#Age = case_when(
+								age_bracket = case_when(
+										Age == "Under 5 years" ~ '01',
+										Age == "5 to 9 years" ~ '02',
+										Age == "10 to 14 years" ~ '03',
+										Age == "15 to 17 years" ~ '04',
+										Age == "18 and 19 years" ~ '04',
+										Age == "20 years" ~ '05',
+										Age == "21 years" ~ '05',
+										Age == "22 to 24 years" ~ '05',
+										Age == "25 to 29 years" ~ '06',
+										Age == "30 to 34 years" ~ '07',
+										Age == "35 to 39 years" ~ '08',
+										Age == "40 to 44 years" ~ '09',
+										Age == "45 to 49 years" ~ '10',
+										Age == "50 to 54 years" ~ '11',
+										Age == "55 to 59 years" ~ '12',
+										Age == "60 and 61 years" ~ '13',
+										Age == "62 to 64 years" ~ '13',
+										Age == "65 and 66 years" ~ '14',
+										Age == "67 to 69 years" ~ '14',
+										Age == "70 to 74 years" ~ '15',
+										Age == "" ~ '15',
+										Age == "75 to 79 years" ~ '16',
+										Age == "80 to 84 years" ~ '17',
+										Age == "85 years and over" ~ '18'
 								),
 								Race = case_when(
 										Racecode == "B" ~ "BLACK, NH",
@@ -515,8 +468,10 @@ getgq_2000 = function(x) {
 										Sex == "Femalee" ~ "FEMALE"
 								)
 						) %>%
-						dplyr::select(-concept, -Racecode, -name)  %>%
-						group_by(state, county, NAME, SEX, Race, Age) %>%
+						#dplyr::select(-concept, -Racecode, -name)  %>%
+						dplyr::select(-concept, -Racecode, -name, -Age)  %>%
+						#group_by(state, county, NAME, SEX, Race, Age) %>%
+						group_by(state, county, NAME, SEX, Race, age_bracket) %>%
 						dplyr::summarise(TOTAL = sum(TOTAL))
 				
 				
@@ -528,35 +483,36 @@ getgq_2000 = function(x) {
 								region = "COUNTY:*",
 								regionin = paste0("state:", x)) %>%
 						gather(name, HHPOP, PCT013B006:PCT013B049) %>%
-						left_join(., list) %>%
+						#left_join(., list) %>%
+						left_join(., variables) %>%
 						mutate(Racecode = substr(name, 7, 7)) %>%
 						separate(label, c('Drop', 'Sex', 'Age'), sep = '!!') %>%
 						mutate(
-								Age = case_when(
-										Age == "Under 5 years" ~ 1,
-										Age == "5 to 9 years" ~ 2,
-										Age == "10 to 14 years" ~ 3,
-										Age == "15 to 17 years" ~ 4,
-										Age == "18 and 19 years" ~ 4,
-										Age == "20 years" ~ 5,
-										Age == "21 years" ~ 5,
-										Age == "22 to 24 years" ~ 5,
-										Age == "25 to 29 years" ~ 6,
-										Age == "30 to 34 years" ~ 7,
-										Age == "35 to 39 years" ~ 8,
-										Age == "40 to 44 years" ~ 9,
-										Age == "45 to 49 years" ~ 10,
-										Age == "50 to 54 years" ~ 11,
-										Age == "55 to 59 years" ~ 12,
-										Age == "60 and 61 years" ~ 13,
-										Age == "62 to 64 years" ~ 13,
-										Age == "65 and 66 years" ~ 14,
-										Age == "67 to 69 years" ~ 14,
-										Age == "70 to 74 years" ~ 15,
-										Age == "" ~ 15,
-										Age == "75 to 79 years" ~ 16,
-										Age == "80 to 84 years" ~ 17,
-										Age == "85 years and over" ~ 18
+								age_bracket = case_when(
+										Age == "Under 5 years" ~ '01',
+										Age == "5 to 9 years" ~ '02',
+										Age == "10 to 14 years" ~ '03',
+										Age == "15 to 17 years" ~ '04',
+										Age == "18 and 19 years" ~ '04',
+										Age == "20 years" ~ '05',
+										Age == "21 years" ~ '05',
+										Age == "22 to 24 years" ~ '05',
+										Age == "25 to 29 years" ~ '06',
+										Age == "30 to 34 years" ~ '07',
+										Age == "35 to 39 years" ~ '08',
+										Age == "40 to 44 years" ~ '09',
+										Age == "45 to 49 years" ~ '10',
+										Age == "50 to 54 years" ~ '11',
+										Age == "55 to 59 years" ~ '12',
+										Age == "60 and 61 years" ~ '13',
+										Age == "62 to 64 years" ~ '13',
+										Age == "65 and 66 years" ~ '14',
+										Age == "67 to 69 years" ~ '14',
+										Age == "70 to 74 years" ~ '15',
+										Age == "" ~ '15',
+										Age == "75 to 79 years" ~ '16',
+										Age == "80 to 84 years" ~ '17',
+										Age == "85 years and over" ~ '18'
 								),
 								Race = case_when(
 										Racecode == "B" ~ "BLACK, NH",
@@ -570,8 +526,8 @@ getgq_2000 = function(x) {
 										Sex == "Femalee" ~ "FEMALE"
 								)
 						)  %>%
-						dplyr::select(-concept, -Racecode, -name) %>%
-						group_by(state, county, NAME, SEX, Race, Age) %>%
+						dplyr::select(-concept, -Racecode, -name, -Age) %>%
+						group_by(state, county, NAME, SEX, Race, age_bracket) %>%
 						dplyr::summarise(HHPOP = sum(HHPOP))
 				
 				
@@ -579,25 +535,14 @@ getgq_2000 = function(x) {
 						ungroup() %>%
 						mutate(
 								GQ = TOTAL - HHPOP,
-								Age = as.numeric(Age),
 								YEAR = baseyear,
 								STATE = state,
 								COUNTY = county
 						) %>%
 						dplyr::rename(
-								RACE = Race,
-								AGEGRP = Age
+								RACE = Race
 						) %>%
 						dplyr::select(-state, -county, -NAME, -TOTAL, -HHPOP)
-				
-				write_csv(
-						joined,
-						paste(
-								path_data,
-								'Processed',
-								paste(paste('population_2000_gq', x, sep = '_'), 'csv', sep = '.'), sep = delimiter_path
-						)
-				)
 				
 				return(joined)
 				
@@ -606,18 +551,75 @@ getgq_2000 = function(x) {
 	)
 }
 
-list <- listCensusMetadata(name = "dec/sf1", vintage = "2010", type ="variables")
-dat <- pbmclapply(stateid, getgq_2010, mc.cores = cores)
-GQ2010 <- rbindlist(dat)
-
-baseyear <- constants$baseyear
 
 
-list <- listCensusMetadata(name = "dec/sf1", vintage = baseyear, type ="variables")
-dat <- pbmclapply(stateid, getgq_2000, mc.cores = cores)
-GQ2000 <- rbindlist(dat)
+if (!dbExistsTable(connection, 'population__group_quarters')) {
+	dbExecute(connection, 'DROP TABLE IF EXISTS "population__group_quarters";')
+	
+	sql <- '
+CREATE TABLE "population__group_quarters" (
+	"id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+	"year" CHARACTER(4) NOT NULL,
+	"state_fips" CHARACTER(2) NOT NULL,
+	"county_fips" CHARACTER(3) NOT NULL,
+	"race" VARYING CHARACTER(15) NOT NULL,
+	"gender" VARYING CHARACTER(10) NOT NULL,
+	"age_bracket" CHARACTER(2) NOT NULL,
+	"population" INTEGER NOT NULL,
+	CONSTRAINT "AlternateKey_age" UNIQUE ("year", "state_fips", "county_fips", "race", "gender", "age_bracket")
+);
+'
+	
+	dbExecute(connection, sql)
+	
+	sql <- '
+INSERT INTO "population__group_quarters" (
+	"year", "state_fips", "county_fips", "race", "gender", "age_bracket", "population"
+)
+VALUES (
+	:year, :state_fips, :county_fips, :race, :gender, :age_bracket, :population
+);
+'
+	
+	insert <- dbSendStatement(connection, sql)
+	
+	variables <- listCensusMetadata(name = "dec/sf1", vintage = "2010", type = "variables")		# was list
+	data <- pbmclapply(state_fips, getgq_2010, variables, mc.cores = cores)
+	group_quarters <- rbindlist(data)
+	
+	dbBind(
+			insert,
+			params = list(
+					year = group_quarters$YEAR,
+					state_fips = group_quarters$STATE,
+					county_fips = group_quarters$COUNTY,
+					race = group_quarters$RACE,
+					gender = group_quarters$SEX,
+					age_bracket = group_quarters$age_bracket,
+					population = group_quarters$GQ
+			)
+	)
+	
+	variables <- listCensusMetadata(name = 'dec/sf1', vintage = constants$analysis_year_start_evaluation, type = 'variables')
+	data <- pbmclapply(state_fips, getgq_2000, variables, constants$analysis_year_start_projection, mc.cores = cores)
+	group_quarters <- rbindlist(data)
+	
+	dbBind(
+			insert,
+			params = list(
+					year = group_quarters$YEAR,
+					state_fips = group_quarters$STATE,
+					county_fips = group_quarters$COUNTY,
+					race = group_quarters$RACE,
+					gender = group_quarters$SEX,
+					age_bracket = group_quarters$age_bracket,
+					population = group_quarters$GQ
+			)
+	)
+	
+	dbClearResult(insert)
+	
+	rm(list = c('group_quarters', 'insert'))
+}
 
-
-
-write_csv(GQ2010, paste(path_data, 'Processed', 'gq_2010.csv', sep = delimiter_path))
-write_csv(GQ2000, paste(path_data, 'Processed', 'gq_2000.csv', sep = delimiter_path))
+dbDisconnect(connection)

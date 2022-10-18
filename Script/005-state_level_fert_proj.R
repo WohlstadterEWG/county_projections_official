@@ -34,7 +34,8 @@
 #	E. Hauer
 #
 # TODO
-#	- The coding style is somewhat obtuse and much of the data is shared through public variables.  Refactor so that
+#	- The coding style is somewhat obtuse and much of the data is shared through public variables.  Redesign the workflow.
+#	- Refactor to eliminate redundancy.
 #
 ###############################################################################
 
@@ -43,181 +44,206 @@
 ###################
 ### DATA PREP
 ##################
-rm(list = ls())
-
 source('./Script/000-Libraries.R')      # loading in the libraries
-source('./Script/001-fipscodes.R')      # Getting a Fips List
-
-source('./Script/002-basedataload.R')   # loading the base data
 
 
-K05_pop <- K05_pop %>%
-		group_by(across(all_of(GROUPING))) %>%
-		dplyr::summarise(POPULATION = sum(POPULATION)) # summing by the grouping for the total population
 
-K05_pop$GEOID <- paste0(K05_pop$STATE, K05_pop$COUNTY) # setting the GEOID equal to the STATE and COUNTY columns
-K05_pop$COUNTYRACE <- paste0(K05_pop$GEOID, "_", K05_pop$RACE) # setting the unique county_race combination
-
-races <- unique(K05_pop$RACE) # creating a looping variable
-
-
-fertrats_20002020 <- data.frame() # making the empty dataframe to hold the results.
-for (this.state in stateid) {
-	for (this.race in races) {
-		K05t <- K05_pop[which(K05_pop$STATE == this.state & K05_pop$RACE == this.race),] %>%
-				group_by(YEAR, STATE, RACE, SEX, AGE) %>%
-				dplyr::summarise(POPULATION = sum(POPULATION)) %>%
-				ungroup()
-		
-#		write_csv(K05t, paste(path_data, 'Load', 'k05_pop_2000_2020__01.csv', sep = delimiter_path))
-		
-		newbornst <- K05t %>%
-				filter(AGE == 1) %>% # AGE 1 = newborns.
-				group_by(STATE, RACE, YEAR)  %>%
-				dplyr::summarise(Newborns = sum(POPULATION))
-		
-#		write_csv(newbornst, paste(path_data, 'Load', 'k05_pop_2000_2020__02.csv', sep = delimiter_path))
-		
-		childbearingt <- K05t %>%
-				filter(
-						AGE %in% c(4, 5, 6, 7, 8, 9, 10), # women ages 15-49
-						SEX == "2"
-				) %>%
-				group_by(STATE, YEAR) %>%
-				dplyr::summarise(Women1550 = sum(POPULATION)) %>%
-				left_join(., newbornst) %>%
-				mutate(fertrat = Newborns / Women1550) %>%
-				filter(YEAR <= test_year)
-		
-#		write_csv(childbearingt, paste(path_data, 'Load', 'k05_pop_2000_2020__03.csv', sep = delimiter_path))
-
-		
-		childbearingt$SEX <- "2"
-		childbearingt[mapply(is.infinite, childbearingt)] <- NA
-		childbearingt[mapply(is.nan, childbearingt)] <- NA
-		childbearingt[is.na(childbearingt)] <-0
-		num <- seq(1, FORLEN, 5)
-		
-#		write_csv(childbearingt, paste(path_data, 'Load', 'k05_pop_2000_2020__04.csv', sep = delimiter_path))
-		
-		
-#		predcwr = function(ccr, sex, x, DF) {
-#			hyndtran = function(ccr, DF) { log((ccr - a) / (b - ccr)) }
-#			b <- max(DF[[as.character(ccr)]][which(DF$RACE == x)]) * 1.01
-#			a <- -0.00000001
-#			y <- as_data_frame(hyndtran(DF[[as.character(ccr)]][which(DF$STATE == x & DF$SEX == sex & DF$RACE == this.race)]))
-#			
-#			num <- seq(1, FORLEN, 5)
-#			pred <- tryCatch(
-#					round(predict(ucm(value ~ 0, data = y, level = TRUE, slope = FALSE)$model, n.ahead = FORLEN)[c(num), ], 5),
-#					error = function(e) array(hyndtran(DF$fertrat[which.max(DF$YEAR)]), c(STEPS))
-#			)
-#			pred2 <- (b - a) * exp(pred) / (1 + exp(pred)) + a
-#			
-#			return(round(pred2, 6))
-#		}
-		
-		#forecasst <- as_data_frame(forecast(arima(childbearingt$fertrat, order = arima_order), h = FORLEN)$mean[c(num)])
-		
-		#auto_test <- auto.arima(childbearingt$fertrat)
-		#summary(auto_test)
-		
-		forecasst <- as_tibble(forecast(arima(childbearingt$fertrat, order = arima_order), h = FORLEN)$mean[c(num)])
-		
-#		fertrats_20002015<-rbind(fertrats_20002015, as_data_frame(predcwr("fertrat", "2", this.race, childbearingt)) %>%
-#		fertrats_20002015<-rbind(fertrats_20002015, forecasst %>%
-		fertrats_20002020 <- rbind(
-				fertrats_20002020,
-				forecasst %>% mutate(STATE = this.state, RACE = this.race, SEX = 2)
-		)
+if (!dbExistsTable(connection, 'fertility')) {
+	source('./Script/001-fipscodes.R')      # Getting a Fips List
+	
+	# Initialize Storage
+	dbExecute(connection, 'DROP TABLE IF EXISTS "fertility";')
+	
+	sql <- '
+CREATE TABLE "fertility" (
+	"id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+	"year" CHARACTER(4) NOT NULL,
+	"state_fips" CHARACTER(2) NOT NULL,
+	"race" CHARACTER(1) NOT NULL,
+	"gender" CHARACTER(1) NOT NULL,
+	"rate" FLOAT NOT NULL,
+	CONSTRAINT "AlternateKey_Race" UNIQUE ("year", "state_fips", "race", "gender")
+);
+'
+	
+	dbExecute(connection, sql)
+	
+	# Fertility Rate Determination
+	
+	# 2000 to 2020
+	source('./Script/002-basedataload.R')   # loading the base data
+	
+	# The variable "group_list" is defined in 002.  This is poor code quality and it should be updated.
+	estimates <- estimates %>%
+			group_by(across(all_of(c('geoid', 'year', 'age_bracket', 'race', 'gender')))) %>%
+			dplyr::summarise(population = sum(population))
+	
+	estimates <- mutate(estimates, state_fips = substr(geoid, 1, 2))
+	
+	races <- unique(estimates$race)
+	
+	fertility <- data.frame()
+	# The variable "state_fips" is defined in 002.  Another example of poor coding.
+	for (this.state in state_fips) {
+		for (this.race in races) {
+			population_race <- estimates[which(estimates$state_fips == this.state & estimates$race == this.race),] %>%
+					group_by(year, state_fips, race, gender, age_bracket) %>%
+					dplyr::summarise(population = sum(population)) %>%
+					ungroup()
+					
+			population_newborns <- population_race %>%
+					filter(
+							age_bracket == '01'
+					) %>%
+					group_by(state_fips, race, year) %>%
+					dplyr::summarise(newborns = sum(population))
+			
+			population_women_childbearing <- population_race %>%
+					filter(
+							age_bracket %in% c('04', '05', '06', '07', '08', '09', '10'),
+							gender == '2'
+					) %>%
+					group_by(state_fips, year) %>%
+					dplyr::summarise(women_childbearing = sum(population)) %>%
+					left_join(., population_newborns) %>%
+					mutate(fertility_rate = newborns / women_childbearing) %>%
+					filter(year <= constants$analysis_year_start_evaluation)
+			
+			population_women_childbearing[mapply(is.infinite, population_women_childbearing)] <- NA
+			population_women_childbearing[mapply(is.nan, population_women_childbearing)] <- NA
+			population_women_childbearing[is.na(population_women_childbearing)] <- 0
+			
+			# The variable "forecast_length" should be more clearly defined.
+			years <- seq(1, forecast_length)
+			
+			trend <- as_tibble(
+					forecast(
+							arima(population_women_childbearing$fertility_rate, order = arima_order),
+							h = forecast_length
+					)$mean[c(years)])
+			
+			fertility <- rbind(
+					fertility,
+					trend %>% mutate(state_fips = this.state, race = this.race, gender = '2')
+			)
+		}
 	}
+	
+	sql <- '
+INSERT INTO "fertility" (
+	"year", "state_fips", "race", "gender", "rate"
+)
+VALUES (
+	:year, :state_fips, :race, :gender, :rate
+);
+'
+	
+	insert <- dbSendStatement(connection, sql)
+	
+	fertility <- unique(fertility)
+	fertility$year <- constants$analysis_year_end_evaluation
+	
+	dbBind(
+			insert,
+			params = list(
+					year = fertility$year,
+					state_fips = fertility$state_fips,
+					race = fertility$race,
+					gender = fertility$gender,
+					rate = fertility$value
+			)
+	)
+	
+	dbClearResult(insert)
+	
+	
+	# 2020 to 2100
+	source('./Script/003-proj_basedataload.R')
+	
+	estimates <- estimates %>%
+			group_by(across(all_of(group_list))) %>%
+			dplyr::summarise(population = sum(population))
+	
+	estimates <- mutate(estimates, state_fips = substr(geoid, 1, 2))
+	
+	races <- unique(estimates$race)
+	
+	fertility <- data.frame()
+	
+	for (this.state in state_fips) {
+		for (this.race in races) {
+			population_race <- estimates[which(estimates$state_fips == this.state & estimates$race == this.race),] %>%
+					group_by(year, state_fips, race, gender, age_bracket) %>%
+					dplyr::summarise(population = sum(population)) %>%
+					ungroup()
+			
+			population_newborns <- population_race %>%
+					filter(
+							age_bracket == '01'
+					) %>%
+					group_by(state_fips, race, year) %>%
+					dplyr::summarise(newborns = sum(population))
+			
+			population_women_childbearing <- population_race %>%
+					filter(
+							age_bracket %in% c('04', '05', '06', '07', '08', '09', '10'),
+							gender == '2'
+					) %>%
+					group_by(state_fips, year) %>%
+					dplyr::summarise(women_childbearing = sum(population)) %>%
+					left_join(., population_newborns) %>%
+					mutate(fertility_rate = newborns / women_childbearing) %>%
+					filter(year <= constants$analysis_year_start_projection)
+			
+			population_women_childbearing[mapply(is.infinite, population_women_childbearing)] <- NA
+			population_women_childbearing[mapply(is.nan, population_women_childbearing)] <- NA
+			population_women_childbearing[is.na(population_women_childbearing)] <- 0
+
+			
+			# The variable "forecast_length" is defined in 003.
+			years <- seq(1, forecast_length)
+			
+			trend <- as_tibble(
+					forecast(
+							arima(population_women_childbearing$fertility_rate, order = arima_order),
+							h = forecast_length
+					)$mean[c(years)])
+			
+			fertility <- rbind(
+					fertility,
+					trend %>% mutate(state_fips = this.state, race = this.race, gender = '2')
+			)
+		}
+	}
+	
+	fertility <- unique(fertility)
+	fertility$year <- constants$analysis_year_end_projection
+	
+	sql <- '
+INSERT INTO "fertility" (
+	"year", "state_fips", "race", "gender", "rate"
+)
+VALUES (
+	:year, :state_fips, :race, :gender, :rate
+);
+'
+	
+	insert <- dbSendStatement(connection, sql)
+	
+	dbBind(
+			insert,
+			params = list(
+					year = fertility$year,
+					state_fips = fertility$state_fips,
+					race = fertility$race,
+					gender = fertility$gender,
+					rate = fertility$value
+			)
+	)
+	
+	dbClearResult(insert)
+	
+	rm(list = c('fertility', 'insert'))
 }
 
-
-#source('./SCRIPTS/003-proj_basedataload.R')
-source('./Script/003-proj_basedataload.R')
-K05_pop <- K05_pop %>%
-		#group_by(.dots = GROUPING) %>%
-		group_by(across(all_of(GROUPING))) %>%
-		dplyr::summarise(POPULATION = sum(POPULATION))
-
-
-K05_pop$GEOID <- paste0(K05_pop$STATE, K05_pop$COUNTY)
-K05_pop$COUNTYRACE <- paste0(K05_pop$GEOID, "_", K05_pop$RACE)
-
-races <- unique(K05_pop$RACE)
-
-#fertrats_20152100<- data.frame()
-fertrats_20202100<- data.frame()
-for (this.state in stateid) {
-	for (this.race in races) {
-		K05t <- K05_pop[which(K05_pop$STATE == this.state & K05_pop$RACE == this.race),] %>%
-				group_by(YEAR, STATE, RACE, SEX, AGE) %>%
-				dplyr::summarise(POPULATION = sum(POPULATION)) %>%
-				ungroup()
-		
-		newbornst <- K05t %>%
-				filter(AGE == 1) %>% # AGE 1 = newborns.
-				group_by(STATE, RACE, YEAR) %>%
-				dplyr::summarise(Newborns = sum(POPULATION))
-		
-		childbearingt <- K05t %>%
-				filter(
-						AGE %in% c(4, 5, 6, 7, 8, 9, 10), # women ages 15-49
-						SEX == "2"
-		) %>%
-		group_by(STATE, YEAR) %>%
-		dplyr::summarise(Women1550 = sum(POPULATION)) %>%
-		left_join(., newbornst) %>%
-		mutate(fertrat = Newborns/Women1550) %>%
-		filter(YEAR <= test_year)
-		
-		childbearingt$SEX <- "2"
-		childbearingt[mapply(is.infinite, childbearingt)] <- NA
-		childbearingt[mapply(is.nan, childbearingt)] <- NA
-		childbearingt[is.na(childbearingt)] <-0
-		
-		num <- seq(1, FORLEN, 5)
-		
-#		predcwr = function(ccr, sex, x, DF) {
-#			hyndtran = function(ccr, DF) { log((ccr - a) / (b - ccr)) }
-#			
-#			b <- max(DF[[as.character(ccr)]][which(DF$RACE == x)]) * 1.01
-#			a <- -0.00000001
-#			y <-as_data_frame(hyndtran(DF[[as.character(ccr)]][which(DF$STATE == x & DF$SEX == sex & DF$RACE == this.race)]))
-#			
-#			num <- seq(1, FORLEN, 5)
-#			pred<- tryCatch(
-#					round(predict(ucm(value ~ 0, data = y, level = TRUE, slope = FALSE)$model, n.ahead = FORLEN)[c(num),], 5),
-#					error = function(e) array(hyndtran(DF$fertrat[which.max(DF$YEAR)]), c(STEPS))
-#			)
-#			
-#			pred2 <- (b - a) * exp(pred) / (1 + exp(pred)) + a
-#			
-#			return(round(pred2, 6))#
-#			
-#		}
-    	
-		forecasst <- as_tibble(forecast(arima(childbearingt$fertrat, order = arima_order), h = FORLEN)$mean[c(num)])
-		
-		#forecasst <- as_data_frame(forecast(arima(childbearingt$fertrat, order = arima_order), h = FORLEN)$mean[c(num)])
-		# fertrats_20152100 <- rbind(fertrats_20152100,as_data_frame(predcwr("fertrat", "2", this.race, childbearingt))) %>%
-		#fertrats_20152100 <- rbind(fertrats_20152100, forecasst %>%
-		fertrats_20202100 <- rbind(
-				fertrats_20202100,
-				forecasst %>%
-						mutate(
-								STATE = this.state,
-								RACE = this.race,
-								SEX = 2
-						)
-		)
-		
-	}
-}
-
-#write_csv(fertrats_20002015, "DATA-PROCESSED/state-level-fert-rates_20002015.csv")
-#write_csv(fertrats_20152100, "DATA-PROCESSED/state-level-fert-rates_20152100.csv")
-
-write_csv(fertrats_20002020, paste(path_data, 'Processed', 'state-level-fert-rates_20002020.csv', sep = delimiter_path))
-write_csv(fertrats_20202100, paste(path_data, 'Processed', 'state-level-fert-rates_20202100.csv', sep = delimiter_path))
+dbDisconnect(connection)

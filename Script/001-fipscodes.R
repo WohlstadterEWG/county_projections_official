@@ -9,6 +9,11 @@
 #	Download Census Counties and Prepare for Cohort Survival Model Analysis Evaluation
 #
 # Purpose
+#	Pull the list of states and counties in the United States.  This script was originally developed by Matthew Hauer and
+#	the analysis was performed on the entire United States.  That is no longer the intended use and thus the data pull
+#	is rather vestigal.  Even though the technique to set the state and county lists is no longer relevant, the larger
+#	goal to set the states and counties is retained.
+#
 #	This script is derived from the R code written by Mathew E. Hauer (see References).
 #
 # Output (datasets set for global use but not persistently stored)
@@ -37,6 +42,8 @@
 #	small, SQLite could be used as the local data repository.  A significant advantage is that the source and data remain
 #	very portable from one workstation to another without incuring the significant costs required to maintain a database
 #	server.
+#	- Set an application level flag to reload the County entity.
+#	- Refactor to be a load only script.  Extract preparation logic to new script or a preface in an existing script.
 #
 ###############################################################################
 
@@ -45,25 +52,75 @@
 ## @knitr fipscodes
 
 
-fipslist <- read_csv(file="https://www2.census.gov/geo/docs/reference/codes/files/national_county.txt", col_names = FALSE) %>%
-		mutate(GEOID = paste0(X2, X3)) %>%
-		dplyr::rename(
-				state = X1,
-                STATEID = X2,
-                CNTYID = X3,
-                NAME = X4
-		) %>%
-		#filter(!STATEID %in% c("60", "66", "69", "72", "74", "78"))
-		filter(GEOID %in% c('17119', '17133', '17163', '29071', '29099', '29183', '29189', '29510'))
+# Only download and create local entity if County does not exist.
+if (!dbExistsTable(connection, 'county')) {
+	counties <- read_csv(file = constants$source_census_county, col_names = FALSE) %>%	# was fipslist
+			mutate(geoid = paste0(X2, X3)) %>%			# was GEOID
+			dplyr::rename(
+					state_abbreviation = X1,			# was state
+	                state_fips = X2,					# was STATEID
+	                county_fips = X3,					# was CNTYID
+	                county_name = X4,					# was NAME
+					ansi_class = X5
+			) %>%
+			#filter(!STATEID %in% c("60", "66", "69", "72", "74", "78"))
+			filter(geoid %in% unlist(str_split(constants$analysis_county_list, ',')))
 
-# Converting the fipslist into a unique list of 2-digit state ID's #
-stateid = unlist(list(unique(fipslist$STATEID)))
+	dbExecute(connection, 'DROP TABLE IF EXISTS "county";')
+	
+	sql <- '
+CREATE TABLE "county" (
+	"id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+	"geoid" CHARACTER(5) NOT NULL,
+	"state_abbreviation" CHARACTER(2) NOT NULL,
+	"state_fips" CHARACTER(2) NOT NULL,
+	"county_fips" CHARACTER(3) NOT NULL,
+	"county_name" VARYING CHARACTER(100) NOT NULL,
+	"ansi_class" CHARACTER(2) NOT NULL,
+	CONSTRAINT "NaturalKey" UNIQUE ("geoid"),
+	CONSTRAINT "AlternateKey_GeoID" UNIQUE ("state_fips", "county_fips")
+);
+'
+	
+	dbExecute(connection, sql)
+	
+	sql <- '
+INSERT INTO "county" ("geoid", "state_abbreviation", "state_fips", "county_fips", "county_name", "ansi_class")
+VALUES (:geoid, :state_abbreviation, :state_fips, :county_fips, :county_name, :ansi_class);
+'
+	
+	insert <- dbSendStatement(connection, sql)
+	
+	dbBind(
+			insert,
+			params = list(
+					geoid = county_list$geoid,
+					state_abbreviation = county_list$state_abbreviation,
+					state_fips = county_list$state_fips,
+					county_fips = county_list$county_fips,
+					county_name = county_list$county_name,
+					ansi_class = county_list$ansi_class
+			)
+	)
+	
+	dbClearResult(insert)
+	
+	rm(list = c('counties', 'insert'))
+}
 
-# Converting the fipslist into a unique list of 5-digit county ID's #
-GEOID = unlist(list(unique(fipslist$GEOID)))
+sql <- 'SELECT * FROM "county";'
+	
+counties <- dbGetQuery(connection, sql)
 
-statenames <- group_by(fipslist, STATEID, state) %>%
-		dplyr::summarise()
 
-countynames <- group_by(fipslist, GEOID, NAME, state) %>%
-		dplyr::summarise()
+
+# States to generate projections for
+#state_fips = unlist(list(unique(counties$state_fips)))					# used to be stateid
+#
+#geoids = unlist(list(unique(counties$geoid)))							# used to be GEOID
+#
+#state_names <- group_by(counties, state_fips, state_abbreviation) %>%	# used to be statenames
+#		dplyr::summarise()
+#
+#county_names <- group_by(counties, geoid, county_name, state_abbreviation) %>%	# used to be countynames
+#		dplyr::summarise()

@@ -41,6 +41,7 @@
 #	small, SQLite could be used as the local data repository.  A significant advantage is that the source and data remain
 #	very portable from one workstation to another without incuring the significant costs required to maintain a database
 #	server.
+#	- Refactor to be a load only script.  Extract preparation logic to new script or a preface in an existing script.
 #
 ###############################################################################
 
@@ -50,99 +51,140 @@
 
 
 # Setting the groupings
-GROUPING <- c("STATE", "COUNTY", "YEAR", "AGE", "RACE", "SEX")
+group_list <- c('geoid', 'year', 'age_bracket', 'race', 'gender')
 
-# TEST YEAR IS SET TO 2015
-#test_year = 2015
-test_year = 2020
+
+# TEST YEAR IS SET TO 2015 (is used in 005, 006, and 007)
+year_start <- constants$analysis_year_start_projection
 
 # LAUNCH YEAR IS THE SAME AS THE TEST YEAR
-launch_year = test_year
+year_baseline <- year_start
 
 # THE NUMBER OF AGE GROUPS
-SIZE <- 18
+age_bracket_count <- 18
 
 # NUMBER OF PROJECTION STEPS
-STEPS <- 16
+projection_step_count <- (as.integer(constants$analysis_year_end_projection) - as.integer(year_baseline)) / 5
 
-# FORECAST LENGTH. SINCE THE PROJECTION INTERVAL IS 5 YEARS IT IS (STEPS * 5)
-FORLEN <- (STEPS * 5)
-
-# TODO This is poor style and needs to be updated.
-years <- 0
-years$YEAR <- seq(launch_year + 5, launch_year + (STEPS * 5), 5)
-years$YEAR <- seq(launch_year + 1, launch_year + STEPS, 1)
-
+forecast_length <- projection_step_count * 5
 
 
 # This should probably be generated from a template 'us.{year_base}_{year_current}.19ages.adjusted'.
 # URL in the download should also be generated from an appropriate template.
-file <- 'us.1990_2020.19ages.adjusted'
+if (!dbExistsTable(connection, 'population__estimate_cdc__projection')) {
+	file <- constants$source_cdc_population_projection_file
+	
+	download.file(
+			paste(constants$source_cdc_population_projection_host, paste(file, 'txt.gz', sep = '.'), sep = '/'),
+			paste(path_data, paste(file, 'txt.gz', sep = '.'), sep = delimiter_path)
+	)
+	gunzip(paste(path_data, paste(file, 'txt.gz', sep = '.'), sep = delimiter_path), overwrite = TRUE, remove = TRUE)
+	
+	estimates <- read.table(paste(path_data, paste(file, 'txt', sep = '.'), sep = delimiter_path))
+	
+	# Parse the Downloaded Data
+	estimates$year <- substr(estimates$V1, 1, 4)
+	estimates$state_abbreviation <- substr(estimates$V1, 5, 6)
+	estimates$state_fips <- substr(estimates$V1, 7, 8)
+	estimates$county_fips <- substr(estimates$V1, 9, 11)
+	estimates$registry <- substr(estimates$V1, 12, 13)
+	estimates$race <- substr(estimates$V1, 14, 14)
+#	estimates$race[estimates$race == '3'] <- '4'							# Reset Hispanic (based on origin)
+	estimates$origin <- substr(estimates$V1, 15, 15)
+	estimates$gender <- substr(estimates$V1, 16, 16)
+	estimates$age_bracket <- substr(estimates$V1, 17, 18)
+	#estimates$age_bracket[estimates$age_bracket == '00'] <- '01'			# Collapse newborns into 1-4 bracket
+	estimates$population <- as.integer(substr(estimates$V1, 19, 30))
+	
+	# Generate Key Columns
+	estimates$geoid <- paste0(estimates$state_fips, estimates$county_fips)
+	
+	dbExecute(connection, 'DROP TABLE IF EXISTS "population__estimate_cdc__projection";')
+	
+	
+	sql <- '
+CREATE TABLE "population__estimate_cdc__projection" (
+	"id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+	"year" CHARACTER(4) NOT NULL,
+	"geoid" CHARACTER(5) NOT NULL,
+	"state_abbreviation" CHARACTER(2) NOT NULL,
+	"state_fips" CHARACTER(2) NOT NULL,
+	"county_fips" CHARACTER(3) NOT NULL,
+	"registry" CHARACTER(2) NOT NULL,
+	"race" CHARACTER(1) NOT NULL,
+	"origin" CHARACTER(1) NOT NULL,
+	"gender" CHARACTER(1) NOT NULL,
+	"age_bracket" CHARACTER(2) NOT NULL,
+	"population" INTEGER NOT NULL --,
+--	CONSTRAINT "AlternateKey_Age" UNIQUE ("year", "state_fips", "county_fips", "race", "gender", "age_bracket")
+);
+'
+	
+	dbExecute(connection, sql)
+	
+	
+	# This process takes a long time at work.  Run it overnight.
+	sql <- '
+INSERT INTO "population__estimate_cdc__projection" (
+	"year", "geoid", "state_abbreviation", "state_fips", "county_fips",
+	"registry", "race", "origin", "gender", "age_bracket",
+	"population"
+)
+VALUES (
+	:year, :geoid, :state_abbreviation, :state_fips, :county_fips,
+	:registry, :race, :origin, :gender, :age_bracket,
+	:population
+);
+'
+	
+	insert <- dbSendStatement(connection, sql)
+	
+	dbBind(
+			insert,
+			params = list(
+					year = estimates$year,
+					geoid = estimates$geoid,
+					state_abbreviation = estimates$state_abbreviation,
+					state_fips = estimates$state_fips,
+					county_fips = estimates$county_fips,
+					registry = estimates$registry,
+					race = estimates$race,
+					origin = estimates$origin,
+					gender = estimates$gender,
+					age_bracket = estimates$age_bracket,
+					population = estimates$population
+			)
+	)
+	
+	dbClearResult(insert)
+	
+	rm(list = c('estimates', 'insert'))
+}
 
+sql <- '
+SELECT "e"."year", "e"."geoid", "e"."race", "e"."gender", "e"."age_bracket",
+	SUM("e"."population") AS "population"
+FROM "population__estimate_cdc__projection" AS "e"
+-- WHERE "e"."year" = :year
+GROUP BY "e"."year","e"."geoid", "e"."race", "e"."gender", "e"."age_bracket";
+'
 
-#### Replaces Download block
-#download.file(
-#		paste('https://seer.cancer.gov/popdata/yr1990_2020.19ages/', file, '.txt.gz', sep = ''),
-#		paste(
-#				path_data,
-#				paste(file, 'txt.gz', sep = '.'),
-#				sep = delimiter_path
-#		)
-#)
-#gunzip(paste(path_data, paste(file, 'txt.gz', sep = '.'), sep = delimiter_path), overwrite = TRUE, remove = TRUE)
+estimates <- dbGetQuery(connection, sql)
 
-
-
-##############################################################
-# #
-# # DOWNLOADING THE CDC POPULATION ESTIMATES FOR 1969-2016.
-# #
-# # IF RUNNING THIS SCRIPT FOR THE FIRST LINE, Run the download.file line and the gunzip line.
-# #
-# download.file("https://seer.cancer.gov/popdata/yr1990_2016.19ages/us.1990_2016.19ages.adjusted.txt.gz", "DATA/us.1990_2016.19ages.adjusted.txt.gz")
-# # UNZIPPING THE DATA FILE
-# gunzip("DATA/us.1990_2016.19ages.adjusted.txt.gz", overwrite = TRUE, remove = TRUE)
-# #
-###################################################################
-
-# READING THE cdc DATA INTO R. THE DATA ARE IN A SINGLE COLUMN FORMAT AND SO THEY MUST BE BROKEN APART.
-#K05_pop<- read.table("DATA/us.1990_2016.19ages.adjusted.txt") 
-K05_pop<- read.table(paste(path_data, paste(file, 'txt', sep = '.'), sep = delimiter_path)) 
-K05_pop$V1 <- as.character(K05_pop$V1) # SETTING THE ENTIRE SINGLE VARIABLE INTO A CHARACTER
-K05_pop$YEAR <- as.numeric(substr(K05_pop$V1, 1, 4)) # SEPARATING THE YEAR AND SETTING IT AS A NUMBER
-K05_pop$STATEID <- substr(K05_pop$V1, 5, 6) # SEPARATING THE 2 CHARACTER STATE ABBREVIATION
-K05_pop$STATE <- substr(K05_pop$V1, 7, 8) # SEPARATING THE 2-DIGIT STATE CODE
-K05_pop$COUNTY <- substr(K05_pop$V1, 9, 11) # SEPARATING THE 3-DIGIT COUNTY CODE
-K05_pop$REGISTRY <- substr(K05_pop$V1, 12, 12) # REGISTRY IS A THROW AWAY VARIABLE REFERING TO ODD GEOGRAPHIES
-K05_pop$RACE <- substr(K05_pop$V1, 14, 14) # SEPARATING OUT THE RACE CODES.
-K05_pop$RACE <- ifelse(K05_pop$RACE == "3", "4", K05_pop$RACE) # CHANGING OTHER CODE FROM 3 TO 4.
-K05_pop$ORIGIN <- substr(K05_pop$V1, 15, 15) # SEPARATING OUT HISPANIC ORIGIN.
-K05_pop$RACE <- ifelse(K05_pop$ORIGIN == "1", "3", K05_pop$RACE) # IF AN ORIGIN IS HISPANIC, CHANGING ITS RACE CODE TO 3.
-K05_pop$SEX <- substr(K05_pop$V1, 16, 16) # SEPARATING OUT THE SEX DATA
-
-# SEPARATING OUT AGE CATEGORIES. THE CDC DATA CONSISTS OF 19 AGE GROUPS WHERE "00" IS CODED AS 0 YEAR OLDS AND "01" IS CODED AS 1-4 YEAR OLDS.
-# I RECODE 00 TO 01 TO CREATE A 0-4 YEAR OLD AGE GROUP.
-K05_pop$AGE <- as.numeric(if_else(substr(K05_pop$V1, 17, 18) == "00", "01", substr(K05_pop$V1, 17, 18)))
-K05_pop$POPULATION <- as.numeric(substr(K05_pop$V1, 19, 30)) # SEPARATING THE ACTUAL POPULATION ESTIMATES.
 
 # THE DATA NEED TO BE AGGREGATED TO THE LEVEL OF ANALYSIS BASED ON THE GROUPING FROM ABOVE. THIS IS TO SUM THE 0 AND 1-4 AGE GROUPS
 # INTO THE 0-4 AGE GROUP
-K05_pop <- K05_pop %>%
-		group_by(across(all_of(GROUPING))) %>%
-		dplyr::summarise(POPULATION = sum(POPULATION))
+estimates$race[estimates$race == '3'] <- '4'
+estimates$race[estimates$origin == '1'] <- '3'					# Set Hispanic based upon origin = Hispanic (review paper)
+estimates$age_bracket[estimates$age_bracket == '00'] <- '01'
 
-K05_pop$GEOID <- paste0(K05_pop$STATE, K05_pop$COUNTY) # SETTING THE 5-DIGIT FIPS CODE
-K05_pop$COUNTYRACE <- paste0(K05_pop$GEOID, "_", K05_pop$RACE) # CREATING A UNIQUE VARIABLE THAT IS 0000_1 FOR EACH COUNTY-RACE COMBINATION
-
-
-#write_csv(K05_pop, paste(path_data, 'Load', 'cdc_1990_2020.csv', sep = delimiter_path))
-
+estimates %>%
+		group_by(across(all_of(group_list))) %>%
+		dplyr::summarise(population = sum(population))
 
 
 # SEPARATING OUT THE LAUNCH POPULATION AND SUMMING TO THE COUNTY TOTAL.
-K05_launch <- K05_pop[which(K05_pop$YEAR == launch_year),] %>%
-		group_by(STATE, COUNTY, GEOID, YEAR) %>%
-		dplyr::summarise(POPULATION = sum(POPULATION)) %>%
+estimates_projection_baseline <- estimates[which(estimates$year == year_baseline),] %>%
+		group_by(geoid) %>%
+		dplyr::summarise(population = sum(population)) %>%
 		ungroup()
-
-#write_csv(K05_launch, paste(path_data, 'Load', 'hauer_sum_1990_2020.csv', sep = delimiter_path))
