@@ -12,7 +12,7 @@
 #	This script is derived from the R code written by Mathew E. Hauer (see References).
 #
 # Output (datasets set for global use but not persistently stored)
-#	- COUNTY_20202100[state]
+#	- population__forecast__projection (Forecasts for the final projections)
 #
 # Dependencies
 #
@@ -45,7 +45,6 @@ if (!dbExistsTable(connection, 'population__forecast__projection')) {
 	project = function(key) {
 		tryCatch(
 				{
-#					key <- '29510_1'
 					###   Prediction of the CCR function
 					prediction <- function(bracket, gender, key, data) {		# bracket is the age band
 						series <- as_tibble(
@@ -198,10 +197,8 @@ if (!dbExistsTable(connection, 'population__forecast__projection')) {
 					
 					### "Stacking" the CCDs into a single vector with a high/medium/low
 					for (i in 1:projection_step_count) {
-						name_male <- paste0("lx", i, "m")
-						name_female <- paste0("lx", i, "f")
 						assign(
-								name_male,
+								paste0("lx", i, "m"),
 								rbind(
 										BA1m[i,],
 										BA2m[i,],
@@ -223,7 +220,7 @@ if (!dbExistsTable(connection, 'population__forecast__projection')) {
 								)
 						)
 						assign(
-								name_female,
+								paste0("lx", i, "f"),
 								rbind(
 										BA1f[i,],
 										BA2f[i,],
@@ -463,10 +460,8 @@ if (!dbExistsTable(connection, 'population__forecast__projection')) {
 					
 					### Stacking the forecasted CCRs into single vectors.
 					for (i in 1:projection_step_count) {
-						name_male <- paste0("lx", i, "m")
-						name_female <- paste0("lx", i, "f")
 						assign(
-								name_male,
+								paste0("lx", i, "m"),
 								rbind(
 										BA1m[i,],
 										BA2m[i,],
@@ -488,7 +483,7 @@ if (!dbExistsTable(connection, 'population__forecast__projection')) {
 								)
 						)
 						assign(
-								name_female,
+								paste0("lx", i, "f"),
 								rbind(
 										BA1f[i,],
 										BA2f[i,],
@@ -509,8 +504,6 @@ if (!dbExistsTable(connection, 'population__forecast__projection')) {
 										BA17f[i,]
 								)
 						)
-						
-						rm(name_female, name_male)
 					}
 					
 					### Setting the sub-diagonal of a leslie matrix as equal to the projected CCRs
@@ -629,7 +622,7 @@ WHERE "p"."year" = :year;
 	
 	select <- dbSendQuery(connection, sql)
 	
-	dbBind(select, list(year = '2010'))
+	dbBind(select, list(year = constants$year_group_quarters_projection))
 	population_group_quarters <- dbFetch(select)
 	dbClearResult(select)
 	
@@ -750,7 +743,22 @@ VALUES (
 		
 		dbDisconnect(connection)
 	}
+	
+	connection <- dbConnect(
+			RSQLite::SQLite(),
+			dbname = paste(configuration$path_database, configuration$database_file, sep = delimiter_path),
+			synchronous = 'normal'
+	)
+	
+	sql <- '
+CREATE INDEX "population__forecast__projection_index_geoid"
+	ON "population__forecast__projection" ("geoid", "race", "gender", "age_bracket", "type");
+'
+	
+	dbExecute(connection, sql)
 }
 
+dbDisconnect(connection)
+	
 
 (end.time <- Sys.time())

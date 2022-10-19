@@ -31,6 +31,58 @@
 
 
 -- Population
+-- SQLite
+SELECT "f"."year", "b"."geoid",
+	SUM(
+		CASE
+			WHEN "f"."population_additive" >= "b"."population" THEN
+				"f"."population_additive"
+			ELSE
+				"f"."population_multiplicative"
+		END
+	) AS "population_forecast"
+FROM (
+		SELECT "geoid", "race", SUM("population") AS "population"
+		FROM "population__estimate_cdc__projection"
+		WHERE "year" = '2020'
+		GROUP BY "geoid", "race"
+	) AS "b"
+	INNER JOIN (
+		SELECT "a"."year", "a"."geoid", "a"."race",
+			SUM("a"."population") AS "population_additive", SUM("m"."population") AS "population_multiplicative"
+		FROM (
+				SELECT "f"."year", "f"."geoid", "f"."gender", "f"."race", "f"."age_bracket",
+					SUM("f"."projection_a") AS "population"
+				FROM "population__forecast__projection" AS "f"
+				WHERE (
+						"f"."geoid" IN ('17119','17133','17163')
+					OR
+						"f"."geoid" IN ('29071','29099','29183','29189','29510')
+					)
+					AND "f"."type" = 'ADD'
+				GROUP BY "f"."year", "f"."geoid", "f"."gender", "f"."race", "f"."age_bracket"
+			) AS "a"
+			INNER JOIN (
+				SELECT "f"."year", "f"."geoid", "f"."gender", "f"."race", "f"."age_bracket",
+					SUM("f"."projection_a") AS "population"
+				FROM "population__forecast__projection" AS "f"
+				WHERE (
+						"f"."geoid" IN ('17119','17133','17163')
+					OR
+						"f"."geoid" IN ('29071','29099','29183','29189','29510')
+					)
+					AND "f"."type" = 'Mult'
+				GROUP BY "f"."year", "f"."geoid", "f"."gender", "f"."race", "f"."age_bracket"
+			) AS "m"
+				ON "a"."year" = "m"."year" AND "a"."geoid" = "m"."geoid"
+					AND "a"."gender" = "m"."gender" AND "a"."race" = "m"."race" AND "a"."age_bracket" = "m"."age_bracket"
+		GROUP BY "a"."year", "a"."geoid", "a"."race"
+	) AS "f" ON "b"."geoid" = "f"."geoid" AND "b"."race" = "f"."race"
+GROUP BY "f"."year", "b"."geoid"
+ORDER BY "f"."year", "b"."geoid";
+
+
+-- PostgreSQL
 SELECT "f"."year", "b"."geoid",
 	SUM(
 		CASE

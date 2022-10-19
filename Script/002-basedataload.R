@@ -16,10 +16,13 @@
 #	
 #	This script is derived from the R code written by Mathew E. Hauer (see References).
 #
-# Output (datasets set for global use but not persistently stored)
-#	- K05_pop		Population Estimates for each year in the range 1969 to 2000
-#	- K05_launch 	Population Estimates for the year 2000
-#	- K05_launch2	Population Estimates for the years 2000, 2005, 2010, 2015, and 2020
+# Output
+#	Persistent Storage
+#		- population__estimate_cdc__evaluation (Population Estimates for each year in the range 1969 to 2000)
+#	Memory Storage
+#	- estimates (Population Estimates for each year in the range 1969 to 2000 - read from persistent storage)
+#	- estimates_evaluation_baseline (Population Estimates for the year 2000)
+#	- estimates_evaluation_forecast (Population Estimates for the years 2000, 2005, 2010, 2015, and 2020)
 #
 # Dependencies
 #
@@ -161,27 +164,40 @@ VALUES (
 	
 	dbClearResult(insert)
 	
+	
+	sql <- '
+CREATE INDEX "population__estimate_cdc__evaluation_index_geoid"
+	ON "population__estimate_cdc__evaluation" ("year", "geoid", "race", "gender", "age_bracket");
+'
+	
+	dbExecute(connection, sql)
+	
 	rm(list = c('estimates', 'insert'))
 }
 
 sql <- '
-SELECT "e"."year", "e"."geoid", "e"."race", "e"."gender", "e"."age_bracket", "e"."population"
-FROM "population__estimate_cdc__evaluation" AS "e"
--- WHERE "e"."year" = :year
--- GROUP BY "e"."year","e"."geoid", "e"."race", "e"."gender", "e"."age_bracket"
-;
+SELECT "e"."year", "e"."geoid", "e"."race", "e"."gender", "e"."age_bracket",
+	SUM("e"."population") AS "population"
+FROM (
+		SELECT "e"."year", "e"."geoid", "e"."race", "e"."gender",
+			CASE WHEN "e"."age_bracket" = \'00\' THEN \'01\' ELSE "e"."age_bracket" END AS "age_bracket",
+			"e"."population"
+		FROM "population__estimate_cdc__evaluation" AS "e"
+	) AS "e"
+GROUP BY "e"."geoid", "e"."year", "e"."age_bracket", "e"."race", "e"."gender"
+ORDER BY "e"."geoid", "e"."year", "e"."age_bracket", "e"."race", "e"."gender";
 '
 
 estimates <- dbGetQuery(connection, sql)
 
 
 
-# These steps could also be done in the SQL resultset; probably quicker.
-estimates$age_bracket[estimates$age_bracket == '00'] <- '01'
+# These steps could also be done in the SQL resultset; probably quicker. - done
+#estimates$age_bracket[estimates$age_bracket == '00'] <- '01'
 
-estimates %>%
-		group_by(across(all_of(group_list))) %>%
-		dplyr::summarise(population = sum(population))
+#estimates %>%
+#		group_by(across(all_of(group_list))) %>%
+#		dplyr::summarise(population = sum(population))
 
 
 estimates_evaluation_baseline <- estimates[which(estimates$year == year_baseline),] %>%
@@ -193,8 +209,7 @@ estimates_evaluation_baseline <- estimates[which(estimates$year == year_baseline
 # Might need to group since there are two '01' rows.  One of the '01' groups is the recoded '00' population.
 estimates_evaluation_forecast <- estimates[
 		which(
-				as.integer(estimates$year) %in% as.character(
+				estimates$year %in% as.character(
 						seq(as.integer(year_baseline), by = 5, length.out = projection_step_count))
 				),
 		]
-

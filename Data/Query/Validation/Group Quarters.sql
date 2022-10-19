@@ -76,3 +76,13 @@ WHERE (
 		"r"."state_fips" = '29' AND "r"."county_fips" IN ('071','099','183','189','510')
 	)
 ORDER BY "r"."year", "r"."state_fips", "r"."county_fips", "r"."race", "r"."gender";
+
+
+
+SELECT COUNT(*) AS "population_count"
+FROM "population__group_quarters_prior" AS "p"
+	INNER JOIN "population__group_quarters" AS "c"
+		ON "p"."year" = "c"."year"
+			AND "p"."state_fips" = "c"."state_fips" AND "p"."county_fips" = "c"."county_fips"
+			AND "p"."race" = "c"."race" AND "p"."gender" = "c"."gender" AND "p"."age_bracket" = "c"."age_bracket"
+WHERE "p"."population" = "c"."population";

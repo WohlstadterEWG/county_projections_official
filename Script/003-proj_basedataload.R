@@ -15,9 +15,12 @@
 #	
 #	This script is derived from the R code written by Mathew E. Hauer (see References).
 #
-# Output (datasets set for global use but not persistently stored)
-#	- K05_pop		Population Estimates for each year in the range 1990 to 2020
-#	- K05_launch 	Population Estimates for the year 2020
+# Output
+#	Persistent Storage
+#		- population__estimate_cdc__projection (Population Estimates for each year in the range 1969 to 2000)
+#	Memory Storage
+#	- estimates (Population Estimates for each year in the range 1990 to 2000 - read from persistent storage)
+#	- estimates_projection_baseline (Population Estimates for the year 2020)
 #
 # Dependencies
 #
@@ -157,6 +160,14 @@ VALUES (
 	)
 	
 	dbClearResult(insert)
+	
+	
+	sql <- '
+CREATE INDEX "population__estimate_cdc__projection_index_geoid"
+	ON "population__estimate_cdc__projection" ("year", "geoid", "race", "gender", "age_bracket");
+'
+	
+	dbExecute(connection, sql)
 	
 	rm(list = c('estimates', 'insert'))
 }

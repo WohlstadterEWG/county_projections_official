@@ -12,7 +12,7 @@
 #	This script is derived from the R code written by Mathew E. Hauer (see References).
 #
 # Output (datasets set for global use but not persistently stored)
-#	- COUNTY_20002020[state]
+#	- population__forecast__evaluation (Forecasts to be used for workflow evaluation)
 #
 # Dependencies
 #	- 000-Libraries.R
@@ -43,7 +43,7 @@
 
 set.seed(100)
 
-(start.time <- Sys.time())
+(time.start <- Sys.time())
 
 source('./Script/000-Libraries.R')      # loading in the libraries
 
@@ -203,10 +203,8 @@ if (!dbExistsTable(connection, 'population__forecast__evaluation')) {
 					
 					### "Stacking" the CCDs into a single vector with a high/medium/low
 					for (i in 1:projection_step_count) {
-						name_male <- paste0("lx", i, "m")
-						name_female <- paste0("lx", i, "f")
 						assign(
-								name_male,
+								paste0("lx", i, "m"),
 								rbind(
 										BA1m[i,],
 										BA2m[i,],
@@ -228,7 +226,7 @@ if (!dbExistsTable(connection, 'population__forecast__evaluation')) {
 								)
 						)
 						assign(
-								name_female,
+								paste0("lx", i, "f"),
 								rbind(
 										BA1f[i,],
 										BA2f[i,],
@@ -466,10 +464,8 @@ if (!dbExistsTable(connection, 'population__forecast__evaluation')) {
 					
 					### Stacking the forecasted CCRs into single vectors.
 					for (i in 1:projection_step_count) {
-						name_male <- paste0("lx", i, "m")
-						name_female <- paste0("lx", i, "f")
 						assign(
-								name_male,
+								paste0("lx", i, "m"),
 								rbind(
 										BA1m[i,],
 										BA2m[i,],
@@ -491,7 +487,7 @@ if (!dbExistsTable(connection, 'population__forecast__evaluation')) {
 								)
 						)
 						assign(
-								name_female,
+								paste0("lx", i, "f"),
 								rbind(
 										BA1f[i,],
 										BA2f[i,],
@@ -512,8 +508,6 @@ if (!dbExistsTable(connection, 'population__forecast__evaluation')) {
 										BA17f[i,]
 								)
 						)
-						
-						rm(name_female, name_male)
 					}
 					
 					### Setting the sub-diagonal of a leslie matrix as equal to the projected CCRs
@@ -630,7 +624,7 @@ WHERE "p"."year" = :year;
 	
 	select <- dbSendQuery(connection, sql)
 	
-	dbBind(select, list(year = '2000'))
+	dbBind(select, list(year = constants$year_group_quarters_projection))
 	population_group_quarters <- dbFetch(select)
 	dbClearResult(select)
 	
@@ -751,6 +745,21 @@ VALUES (
 		
 		dbDisconnect(connection)
 	}
-} else {
-	dbDisconnect(connection)
+	
+	connection <- dbConnect(
+			RSQLite::SQLite(),
+			dbname = paste(configuration$path_database, configuration$database_file, sep = delimiter_path),
+			synchronous = 'normal'
+	)
+	
+	sql <- '
+CREATE INDEX "population__forecast__evaluation_index_geoid"
+	ON "population__forecast__evaluation" ("geoid", "race", "gender", "age_bracket", "type");
+'
+	
+	dbExecute(connection, sql)
 }
+
+dbDisconnect(connection)
+
+(time.end <- Sys.time())

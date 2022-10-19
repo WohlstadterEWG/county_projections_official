@@ -15,8 +15,7 @@
 #	This script is derived from the R code written by Mathew E. Hauer (see References).
 #
 # Output
-#	- state-level-fert-rates_20002020.csv
-#	- state-level-fert-rates_20202100.csv
+#	- fertility (Fertility rates as a ratio of newborns and women of childbearing years)
 #
 # Dependencies
 #	- 000-Libraries.R
@@ -26,6 +25,8 @@
 # Conversions
 #
 # Notes
+#	- Fertility rates to be used with evaulations are keyed on the evaluation end year.
+#	- Fertility rates to be used with projections are keyed on the projection end year.
 #
 # Assumptions
 # 
@@ -36,6 +37,7 @@
 # TODO
 #	- The coding style is somewhat obtuse and much of the data is shared through public variables.  Redesign the workflow.
 #	- Refactor to eliminate redundancy.
+#	- If a global storage is to be used, more clearly define what is global and what is not.
 #
 ###############################################################################
 
@@ -73,9 +75,9 @@ CREATE TABLE "fertility" (
 	# 2000 to 2020
 	source('./Script/002-basedataload.R')   # loading the base data
 	
-	# The variable "group_list" is defined in 002.  This is poor code quality and it should be updated.
+	# The variable "group_list" is set in 002.
 	estimates <- estimates %>%
-			group_by(across(all_of(c('geoid', 'year', 'age_bracket', 'race', 'gender')))) %>%
+			group_by(across(all_of(group_list))) %>%
 			dplyr::summarise(population = sum(population))
 	
 	estimates <- mutate(estimates, state_fips = substr(geoid, 1, 2))
@@ -83,7 +85,8 @@ CREATE TABLE "fertility" (
 	races <- unique(estimates$race)
 	
 	fertility <- data.frame()
-	# The variable "state_fips" is defined in 002.  Another example of poor coding.
+	
+	# The variable "state_fips" is defined in 002.  There should be a more obvious "global" store for this.
 	for (this.state in state_fips) {
 		for (this.race in races) {
 			population_race <- estimates[which(estimates$state_fips == this.state & estimates$race == this.race),] %>%
@@ -106,25 +109,25 @@ CREATE TABLE "fertility" (
 					group_by(state_fips, year) %>%
 					dplyr::summarise(women_childbearing = sum(population)) %>%
 					left_join(., population_newborns) %>%
-					mutate(fertility_rate = newborns / women_childbearing) %>%
+					mutate(newborn_ratio = newborns / women_childbearing) %>%
 					filter(year <= constants$analysis_year_start_evaluation)
 			
 			population_women_childbearing[mapply(is.infinite, population_women_childbearing)] <- NA
 			population_women_childbearing[mapply(is.nan, population_women_childbearing)] <- NA
 			population_women_childbearing[is.na(population_women_childbearing)] <- 0
 			
-			# The variable "forecast_length" should be more clearly defined.
+			# The variable "forecast_length" should be more clearly defined (i.e. more obvious global store).
 			years <- seq(1, forecast_length)
 			
-			trend <- as_tibble(
+			rate <- as_tibble(
 					forecast(
-							arima(population_women_childbearing$fertility_rate, order = arima_order),
+							arima(population_women_childbearing$newborn_ratio, order = arima_order),
 							h = forecast_length
 					)$mean[c(years)])
 			
 			fertility <- rbind(
 					fertility,
-					trend %>% mutate(state_fips = this.state, race = this.race, gender = '2')
+					rate %>% mutate(state_fips = this.state, race = this.race, gender = '2')
 			)
 		}
 	}
@@ -160,6 +163,7 @@ VALUES (
 	# 2020 to 2100
 	source('./Script/003-proj_basedataload.R')
 	
+	# The variable "group_list" is set in 003.
 	estimates <- estimates %>%
 			group_by(across(all_of(group_list))) %>%
 			dplyr::summarise(population = sum(population))
@@ -192,7 +196,7 @@ VALUES (
 					group_by(state_fips, year) %>%
 					dplyr::summarise(women_childbearing = sum(population)) %>%
 					left_join(., population_newborns) %>%
-					mutate(fertility_rate = newborns / women_childbearing) %>%
+					mutate(newborn_ratio = newborns / women_childbearing) %>%
 					filter(year <= constants$analysis_year_start_projection)
 			
 			population_women_childbearing[mapply(is.infinite, population_women_childbearing)] <- NA
@@ -203,15 +207,15 @@ VALUES (
 			# The variable "forecast_length" is defined in 003.
 			years <- seq(1, forecast_length)
 			
-			trend <- as_tibble(
+			rate <- as_tibble(
 					forecast(
-							arima(population_women_childbearing$fertility_rate, order = arima_order),
+							arima(population_women_childbearing$newborn_ratio, order = arima_order),
 							h = forecast_length
 					)$mean[c(years)])
 			
 			fertility <- rbind(
 					fertility,
-					trend %>% mutate(state_fips = this.state, race = this.race, gender = '2')
+					rate %>% mutate(state_fips = this.state, race = this.race, gender = '2')
 			)
 		}
 	}

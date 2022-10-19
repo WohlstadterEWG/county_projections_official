@@ -54,7 +54,7 @@
 
 # Only download and create local entity if County does not exist.
 if (!dbExistsTable(connection, 'county')) {
-	counties <- read_csv(file = constants$source_census_county, col_names = FALSE) %>%	# was fipslist
+	counties <- read_csv(file = constants$source_census_county, col_names = FALSE) %>%
 			mutate(geoid = paste0(X2, X3)) %>%			# was GEOID
 			dplyr::rename(
 					state_abbreviation = X1,			# was state
@@ -63,7 +63,7 @@ if (!dbExistsTable(connection, 'county')) {
 	                county_name = X4,					# was NAME
 					ansi_class = X5
 			) %>%
-			#filter(!STATEID %in% c("60", "66", "69", "72", "74", "78"))
+			#filter(!STATEID %in% c("60", "66", "69", "72", "74", "78"))		# Only for full country analysis.
 			filter(geoid %in% unlist(str_split(constants$analysis_county_list, ',')))
 
 	dbExecute(connection, 'DROP TABLE IF EXISTS "county";')
@@ -112,15 +112,13 @@ sql <- 'SELECT * FROM "county";'
 	
 counties <- dbGetQuery(connection, sql)
 
-
-
 # States to generate projections for
-#state_fips = unlist(list(unique(counties$state_fips)))					# used to be stateid
-#
-#geoids = unlist(list(unique(counties$geoid)))							# used to be GEOID
-#
-#state_names <- group_by(counties, state_fips, state_abbreviation) %>%	# used to be statenames
-#		dplyr::summarise()
-#
-#county_names <- group_by(counties, geoid, county_name, state_abbreviation) %>%	# used to be countynames
-#		dplyr::summarise()
+state_fips = unlist(list(unique(counties$state_fips)))					# used to be stateid
+
+geoids = unlist(list(unique(counties$geoid)))							# used to be GEOID
+
+state_names <- group_by(counties, state_fips, state_abbreviation) %>%	# used to be statenames
+		dplyr::summarise()
+
+county_names <- group_by(counties, geoid, county_name, state_abbreviation) %>%	# used to be countynames
+		dplyr::summarise()
