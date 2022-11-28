@@ -73,7 +73,7 @@ if (!require("pacman", character.only = TRUE)){
 
 
 # Libraries
-pkgs <- c(
+packages <- c(
 	"tidyverse",     # Tidyverse
 	"data.table",    # Data Management/Manipulation
 	"doParallel",    # Parallel Computing
@@ -110,16 +110,16 @@ pkgs <- c(
 
 # Install missing packages
 # Will only run if at least one package is missing
-if(!sum(!p_isinstalled(pkgs)) == 0) {
+if(!sum(!p_isinstalled(packages)) == 0) {
 	p_install(
-		package = pkgs[!p_isinstalled(pkgs)], 
+		package = packages[!p_isinstalled(packages)], 
 		character.only = TRUE
 	)
 }
 
 # load the packages
-p_load(pkgs, character.only = TRUE)
-rm(pkgs)
+p_load(packages, character.only = TRUE)
+rm(packages)
 
 # Operating System Specific Settings
 system <- Sys.info()
