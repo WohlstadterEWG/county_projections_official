@@ -198,6 +198,8 @@ connection <- dbConnect(
 )
 
 # Performance Tuning (also the synchronous setting in the connect)
+# If the database file is stored on a network share (don't) WAL cannot be used.
+# Also WAL is better during writes and may not be as useful for this application if reading is the dominant action.
 dbExecute(connection, 'PRAGMA journal_mode = WAL;')
 dbExecute(connection, 'PRAGMA temp_store = memory;')
 dbExecute(connection, 'PRAGMA mmap_size = 30000000000;')
