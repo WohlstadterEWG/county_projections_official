@@ -75,6 +75,7 @@ if (!require("pacman", character.only = TRUE)){
 # Libraries
 packages <- c(
 	"tidyverse",     # Tidyverse
+	'dplyr',
 	"data.table",    # Data Management/Manipulation
 	"doParallel",    # Parallel Computing
 	"foreach",       # Parallel Computing
@@ -187,7 +188,6 @@ arima_order <- c(
 		as.numeric(constants$arima_model_ma_terms)
 )
 arma <- constants$arma
-
 
 
 # Persistent Storage (any SQL database will work)

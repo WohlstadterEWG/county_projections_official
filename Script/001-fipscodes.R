@@ -94,12 +94,12 @@ VALUES (:geoid, :state_abbreviation, :state_fips, :county_fips, :county_name, :a
 	dbBind(
 			insert,
 			params = list(
-					geoid = county_list$geoid,
-					state_abbreviation = county_list$state_abbreviation,
-					state_fips = county_list$state_fips,
-					county_fips = county_list$county_fips,
-					county_name = county_list$county_name,
-					ansi_class = county_list$ansi_class
+					geoid = counties$geoid,
+					state_abbreviation = counties$state_abbreviation,
+					state_fips = counties$state_fips,
+					county_fips = counties$county_fips,
+					county_name = counties$county_name,
+					ansi_class = counties$ansi_class
 			)
 	)
 	

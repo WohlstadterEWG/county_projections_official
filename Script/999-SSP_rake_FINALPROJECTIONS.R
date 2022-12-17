@@ -153,6 +153,22 @@ pathways <- pathways %>%
 
 #source('./Script/003-proj_basedataload.R')   # loading the base data
 
+# Appears to be the only lines from 003 used.
+# TEST YEAR IS SET TO 2015 (is used in 005, 006, and 007)
+year_start <- constants$analysis_year_start_projection
+
+# LAUNCH YEAR IS THE SAME AS THE TEST YEAR
+year_baseline <- year_start
+
+# THE NUMBER OF AGE GROUPS
+age_bracket_count <- 18
+
+# NUMBER OF PROJECTION STEPS
+projection_step_count <- (as.integer(constants$analysis_year_end_projection) - as.integer(year_baseline)) / 5
+
+forecast_length <- projection_step_count * 5
+
+
 
 sql <- '
 SELECT "f"."year", "f"."geoid", "f"."gender", "f"."race", "f"."age_bracket",
@@ -196,7 +212,7 @@ dbClearResult(select)
 sql <- '
 SELECT "f"."year", "f"."geoid", "f"."gender", "f"."race", "f"."age_bracket",
 	SUM("f"."projection_a") AS "population"
-FROM "population__estimate_cdc__projection" AS "f"
+FROM "population__forecast__projection" AS "f"
 WHERE (
 		"f"."geoid" IN (\'17119\',\'17133\',\'17163\')
 	OR
@@ -216,6 +232,8 @@ dbBind(select,
 		)
 )
 projections_additive <- dbFetch(select)
+
+dbClearResult(select)
 
 
 sql <- '
@@ -240,6 +258,8 @@ dbBind(select,
 )
 
 projections_check <- dbFetch(select)
+
+dbClearResult(select)
 
 
 projections <- left_join(
