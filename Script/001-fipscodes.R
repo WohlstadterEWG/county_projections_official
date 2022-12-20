@@ -63,8 +63,8 @@ if (!dbExistsTable(connection, 'county')) {
 	                county_name = X4,					# was NAME
 					ansi_class = X5
 			) %>%
-			#filter(!STATEID %in% c("60", "66", "69", "72", "74", "78"))		# Only for full country analysis.
-			filter(geoid %in% unlist(str_split(constants$analysis_county_list, ',')))
+			filter(!state_fips %in% c('60', '66', '69', '72', '74', '78'))		# Only for full country analysis.
+			#filter(geoid %in% unlist(str_split(constants$analysis_county_list, ',')))
 
 	dbExecute(connection, 'DROP TABLE IF EXISTS "county";')
 	

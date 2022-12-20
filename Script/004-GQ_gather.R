@@ -76,7 +76,7 @@ get_group_quarters = function(state_fips, year) {
 					population <- getCensus(
 								name = "dec/sf1", # This is the Estimates datafile
 								vintage = year, # Vintage year is set to the variable set above
-								key = key, # inputting my Census API key
+								key = key_census, # inputting my Census API key
 								vars = variables, # gathering these variables
 								region = "COUNTY:*",
 								regionin = paste0("state:", state_fips)

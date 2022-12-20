@@ -174,12 +174,13 @@ sql <- '
 SELECT "f"."year", "f"."geoid", "f"."gender", "f"."race", "f"."age_bracket",
 	SUM("f"."projection_a") AS "population"
 FROM "population__forecast__projection" AS "f"
-WHERE (
-		"f"."geoid" IN (\'17119\',\'17133\',\'17163\')
-	OR
-		"f"."geoid" IN (\'29071\',\'29099\',\'29183\',\'29189\',\'29510\')
-	)
-	AND "f"."type" = :method AND "f"."year" >= :year_begin AND "f"."year" <= :year_end
+WHERE -- (
+--		"f"."geoid" IN (\'17119\',\'17133\',\'17163\')
+--	OR
+--		"f"."geoid" IN (\'29071\',\'29099\',\'29183\',\'29189\',\'29510\')
+--	)
+--	AND
+	"f"."type" = :method AND "f"."year" >= :year_begin AND "f"."year" <= :year_end
 GROUP BY "f"."year", "f"."geoid", "f"."gender", "f"."race", "f"."age_bracket"
 '
 
@@ -213,12 +214,13 @@ sql <- '
 SELECT "f"."year", "f"."geoid", "f"."gender", "f"."race", "f"."age_bracket",
 	SUM("f"."projection_a") AS "population"
 FROM "population__forecast__projection" AS "f"
-WHERE (
-		"f"."geoid" IN (\'17119\',\'17133\',\'17163\')
-	OR
-		"f"."geoid" IN (\'29071\',\'29099\',\'29183\',\'29189\',\'29510\')
-	)
-	AND "f"."type" = :method AND "f"."year" >= :year_begin AND "f"."year" <= :year_end
+WHERE -- (
+--		"f"."geoid" IN (\'17119\',\'17133\',\'17163\')
+--	OR
+--		"f"."geoid" IN (\'29071\',\'29099\',\'29183\',\'29189\',\'29510\')
+--	)
+--	AND
+	"f"."type" = :method AND "f"."year" >= :year_begin AND "f"."year" <= :year_end
 GROUP BY "f"."year", "f"."geoid", "f"."gender", "f"."race", "f"."age_bracket"
 '
 
@@ -240,12 +242,13 @@ sql <- '
 SELECT "e"."geoid", "e"."race",
 	SUM("e"."population") AS "population"
 FROM "population__estimate_cdc__projection" AS "e"
-WHERE (
-		"e"."geoid" IN (\'17119\',\'17133\',\'17163\')
-	OR
-		"e"."geoid" IN (\'29071\',\'29099\',\'29183\',\'29189\',\'29510\')
-	)
-	AND "e"."year" = :year
+WHERE --(
+--		"e"."geoid" IN (\'17119\',\'17133\',\'17163\')
+--	OR
+--		"e"."geoid" IN (\'29071\',\'29099\',\'29183\',\'29189\',\'29510\')
+--	)
+--	AND
+	"e"."year" = :year
 GROUP BY "e"."geoid", "e"."race";
 '
 

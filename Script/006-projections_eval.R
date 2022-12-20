@@ -47,7 +47,7 @@ set.seed(100)
 
 source('./Script/000-Libraries.R')      # loading in the libraries
 
-if (!dbExistsTable(connection, 'population__forecast__evaluation')) {
+if (TRUE || !dbExistsTable(connection, 'population__forecast__evaluation')) {
 	source('./Script/001-fipscodes.R')      # Getting a Fips List
 	source('./Script/002-basedataload.R')   # loading the base data
 	
@@ -607,8 +607,8 @@ if (!dbExistsTable(connection, 'population__forecast__evaluation')) {
 	
 	### Begin Processing
 	# EWG Region
-	estimates <- estimates	%>%
-			filter(geoid %in% c('17119', '17133', '17163', '29071', '29099', '29183', '29189', '29510'))
+#	estimates <- estimates	%>%
+#			filter(geoid %in% c('17119', '17133', '17163', '29071', '29099', '29183', '29189', '29510'))
 	
 	# Baseline is initialized in 002.  Refactor to be more explicit.
 	estimates_baseline <- estimates[which(estimates$year == year_baseline),]
@@ -690,7 +690,7 @@ CREATE TABLE "population__forecast__evaluation" (
 	dbDisconnect(connection)
 	
 	packages <- c("data.table", "doParallel", "foreach", "tidyverse", "rucm", "forecast", "RSQLite")
-	foreach(i = 1:length(state_fips), .combine = rbind, .errorhandling = "stop", .packages = packages) %dopar% {
+	errors <- foreach(i = 1:length(state_fips), .combine = rbind, .errorhandling = 'pass', .packages = packages) %dopar% {
 		connection <- dbConnect(
 				RSQLite::SQLite(),
 				dbname = paste(configuration$path_database, configuration$database_file, sep = delimiter_path),
@@ -717,14 +717,28 @@ VALUES (
 		
 		projection <- rbindlist(lapply(keys, project))
 		
+		write.table(
+				projection,
+				'dump.txt',
+				append = FALSE,
+				sep = " ", dec = ".",
+				row.names = TRUE,
+				col.names = TRUE
+		)
+		
+		sink(paste(paste('dump', state_fips[i], sep = '_'), 'log', sep = '.'))
+		print(keys)
+		print(projection)
+		sink()
+		
 		projection <- projection %>%
-			mutate(
-					geoid = substr(key, 1, 5),
-					race = substr(key, 7, 7),
-					age_bracket = sprintf('%02d', as.numeric(substr(variable, 2, 3)))
-			) %>%
-			group_by(year, geoid, race, gender, age_bracket) %>%
-			spread(scenario, frequency)
+				mutate(
+						geoid = substr(key, 1, 5),
+						race = substr(key, 7, 7),
+						age_bracket = sprintf('%02d', as.numeric(substr(variable, 2, 3)))
+				) %>%
+				group_by(year, geoid, race, gender, age_bracket) %>%
+				spread(scenario, frequency)
 		
 		dbBind(
 				insert,
@@ -746,6 +760,8 @@ VALUES (
 		dbDisconnect(connection)
 	}
 	
+	errors
+	
 	connection <- dbConnect(
 			RSQLite::SQLite(),
 			dbname = paste(configuration$path_database, configuration$database_file, sep = delimiter_path),
@@ -761,5 +777,8 @@ CREATE INDEX "population__forecast__evaluation_index_geoid"
 }
 
 dbDisconnect(connection)
+
+parallel::stopCluster(clusters)
+
 
 (time.end <- Sys.time())

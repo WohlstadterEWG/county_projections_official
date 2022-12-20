@@ -174,7 +174,7 @@ constants <- read.properties(paste(path_base, 'Script', 'application.properties'
 path_data <- configuration$path_data
 
 # Census API Key
-key <- properties$api.key.census
+key_census <- properties$api.key.census
 
 
 

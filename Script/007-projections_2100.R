@@ -605,8 +605,8 @@ if (!dbExistsTable(connection, 'population__forecast__projection')) {
 	
 	### Begin Processing
 	# EWG Region
-	estimates <- estimates	%>%
-			filter(geoid %in% c('17119', '17133', '17163', '29071', '29099', '29183', '29189', '29510'))
+#	estimates <- estimates	%>%
+#			filter(geoid %in% c('17119', '17133', '17163', '29071', '29099', '29183', '29189', '29510'))
 	
 	# Baseline is initialized in 003.  Refactor to be more explicit.
 	estimates_baseline <- estimates[which(estimates$year == year_baseline),]
@@ -687,7 +687,7 @@ CREATE TABLE "population__forecast__projection" (
 	dbDisconnect(connection)
 	
 	packages <- c("data.table", "doParallel", "foreach", "tidyverse", "rucm", "forecast", "RSQLite")
-	foreach(i = 1:length(state_fips), .combine = rbind, .errorhandling = "stop", .packages = packages) %dopar% {
+	errors <- foreach(i = 1:length(state_fips), .combine = rbind, .errorhandling = 'pass', .packages = packages) %dopar% {
 		connection <- dbConnect(
 				RSQLite::SQLite(),
 				dbname = paste(configuration$path_database, configuration$database_file, sep = delimiter_path),
@@ -744,6 +744,8 @@ VALUES (
 		dbDisconnect(connection)
 	}
 	
+	errors
+	
 	connection <- dbConnect(
 			RSQLite::SQLite(),
 			dbname = paste(configuration$path_database, configuration$database_file, sep = delimiter_path),
@@ -760,5 +762,7 @@ CREATE INDEX "population__forecast__projection_index_geoid"
 
 dbDisconnect(connection)
 	
+parallel::stopCluster(clusters)
+
 
 (end.time <- Sys.time())
