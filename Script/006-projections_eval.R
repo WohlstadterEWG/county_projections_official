@@ -19,6 +19,9 @@
 #	- 001-fipscodes.R
 #	- 002-basedataload.R
 #
+# Output
+#	- population__forecast__evaluation
+#
 # Conversions
 #
 # Notes
@@ -37,6 +40,7 @@
 #	connection inside of the foreach() %dopar% loop.  Currently the local database connection logic is active and the shared
 #	database connection logic is commented out.  Note, the number of look iterations is small and the connection cost is
 #	low.
+#	- Allow the scope to be set in configuration.  Currently the states selected for analysis are hardcoded.
 #
 ###############################################################################
 
@@ -607,8 +611,8 @@ if (TRUE || !dbExistsTable(connection, 'population__forecast__evaluation')) {
 	
 	### Begin Processing
 	# EWG Region
-#	estimates <- estimates	%>%
-#			filter(geoid %in% c('17119', '17133', '17163', '29071', '29099', '29183', '29189', '29510'))
+	estimates <- estimates	%>%
+			filter(geoid %in% c('17119', '17133', '17163', '29071', '29099', '29183', '29189', '29510'))
 	
 	# Baseline is initialized in 002.  Refactor to be more explicit.
 	estimates_baseline <- estimates[which(estimates$year == year_baseline),]
@@ -770,7 +774,7 @@ VALUES (
 	
 	sql <- '
 CREATE INDEX "population__forecast__evaluation_index_geoid"
-	ON "population__forecast__evaluation" ("geoid", "race", "gender", "age_bracket", "type");
+	ON "population__forecast__evaluation" ("geoid", "race", "gender", "age_bracket", "type", "year");
 '
 	
 	dbExecute(connection, sql)

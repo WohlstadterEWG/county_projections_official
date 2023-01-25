@@ -39,7 +39,7 @@
 source('./Script/000-Libraries.R')      # loading in the libraries
 
 
-if (!dbExistsTable(connection, 'population__model__projection')) {
+if (TRUE || !dbExistsTable(connection, 'population__model__projection')) {
 	pathways <- read_csv(paste(path_data, 'SspDb_country_data_2013-06-12.csv', sep = delimiter_path),) %>%
 			filter(REGION == "USA", grepl("Population", VARIABLE)) %>%
 			separate(VARIABLE, c("VARIABLE", "VARIABLE1", "VARIABLE2", "VARIABLE3", "VARIABLE4"), sep = '\\|')

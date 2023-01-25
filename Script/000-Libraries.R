@@ -31,7 +31,7 @@
 # TODO
 #	- Review the use of pacman to manage packages. The library hasn't been updated in a while and it is really just sugar.
 #	- Research if there is a dbi command to execute multiple SQL statements.
-#	- Correct wrap the clusters.  Currently warnings are generated because clusters are initialized here and left hanging.
+#	- Correctly wrap the clusters.  Currently warnings are generated because clusters are initialized here and left hanging.
 #	That's not good programming practice.  Any unit of work that uses clusters should start the cluster, perform the work,
 #	then close the cluster with parallel::stopCluster.
 #

@@ -8,7 +8,7 @@
  *	Population Projection from 2025 to 2100
  * 
  * Purpose
- *	Statements to pull the population projects as modeled by the Hauer Cohort Survival Model workflow.
+ *	Statements to pull the population projections as modeled by the Hauer Cohort Survival Model workflow.
  *
  * 
  * Dependencies

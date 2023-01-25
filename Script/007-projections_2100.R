@@ -28,6 +28,7 @@
 #
 # TODO
 #	- Potentially redundant with 006.  Review if differences can be addressed with passed parameters and configuration.
+#	- Allow the scope to be set in configuration.  Currently the states selected for analysis are hardcoded.
 #
 ###############################################################################
 
@@ -38,7 +39,7 @@ set.seed(100)
 
 source('./Script/000-Libraries.R')      # loading in the libraries
 
-if (!dbExistsTable(connection, 'population__forecast__projection')) {
+if (TRUE || !dbExistsTable(connection, 'population__forecast__projection')) {
 	source('./Script/001-fipscodes.R')      # Getting a Fips List
 	source('./Script/003-proj_basedataload.R')   # loading the base data
 
@@ -605,8 +606,8 @@ if (!dbExistsTable(connection, 'population__forecast__projection')) {
 	
 	### Begin Processing
 	# EWG Region
-#	estimates <- estimates	%>%
-#			filter(geoid %in% c('17119', '17133', '17163', '29071', '29099', '29183', '29189', '29510'))
+	estimates <- estimates	%>%
+			filter(geoid %in% c('17119', '17133', '17163', '29071', '29099', '29183', '29189', '29510'))
 	
 	# Baseline is initialized in 003.  Refactor to be more explicit.
 	estimates_baseline <- estimates[which(estimates$year == year_baseline),]
@@ -754,7 +755,7 @@ VALUES (
 	
 	sql <- '
 CREATE INDEX "population__forecast__projection_index_geoid"
-	ON "population__forecast__projection" ("geoid", "race", "gender", "age_bracket", "type");
+	ON "population__forecast__projection" ("geoid", "race", "gender", "age_bracket", "type", "year");
 '
 	
 	dbExecute(connection, sql)
